@@ -37,9 +37,14 @@ def page():
             "route": "/banana-studio",
         },
         {
-            "title": "Gemini Writers Workshop",
-            "description": "A place to generate text content from prompts and optional media assets.",
-            "route": "/gemini-writers-workshop",
+            "title": "Object Rotation",
+            "description": "Given an object, create images of each side and then create a rotation video",
+            "route": "/object-rotation",
+        },
+        {
+            "title": "Guideline Analysis",
+            "description": "A page to analyze a media item's prompt and generate guideline criteria.",
+            "route": "/guideline-analysis",
         },
         {
             "title": "VTO Model Composite Card Generator",

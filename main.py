@@ -43,10 +43,12 @@ from pages import config as config_page
 from pages import gemini_image_generation as gemini_image_generation_page
 from pages import gemini_tts as gemini_tts_page
 from pages import gemini_writers_workshop as gemini_writers_workshop_page
+from pages import guideline_analysis as guideline_analysis_page
 from pages import home as home_page
 from pages import imagen as imagen_page
 from pages import interior_design_v2 as interior_design_page
 from pages import lyria as lyria_page
+from pages import object_rotation as object_rotation_page
 from pages import pixie_compositor as pixie_compositor_page
 from pages import portraits as motion_portraits
 from pages import recontextualize as recontextualize_page
