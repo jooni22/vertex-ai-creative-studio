@@ -48,7 +48,7 @@ def page():
     tiles_data = [
         {"icon": "home", "route": "/home"},
         {"label": "Veo", "route": "/veo"},
-        {"label": "Gemini Image Generation", "icon": "banana", "route": "/gemini_image_generation"},
+        {"label": "Gemini Image Generation", "icon": "banana", "route": "/nano-banana"},
         {"label": "Lyria", "route": "/lyria"},
         {"label": "Speech", "route": "/home"},
         {"label": "Workflows", "route": "/home"},
@@ -57,7 +57,8 @@ def page():
     welcome_hero(
         title="GenMedia Creative Studio",
         subtitle="Fuel your creativity with Google Cloud Vertex AI's generative media models and custom workflows.",
-        video_url="https://deepmind.google/api/blob/website/media/veo__cover_s0RKXWX.mp4",
+        # video_url="https://deepmind.google/api/blob/website/media/veo__cover_s0RKXWX.mp4", # Veo 2.0 backup
+        video_url="https://deepmind.google//api/blob/website/media/veo_3-1__page_cover.mp4",
         tiles=json.dumps(tiles_data),
         on_tile_click=on_tile_click,
     )

@@ -87,8 +87,10 @@ REWRITER_MODEL_ID = cfg.MODEL_ID  # Use default model from config for rewriter
 def generate_image_from_prompt_and_images(
     prompt: str,
     images: list[str],
+    aspect_ratio: str,
     gcs_folder: str = "generated_images",
     file_prefix: str = "image",
+    candidate_count: int = 1,
 ) -> tuple[list[str], float]:
     """Generates images from a prompt and a list of images."""
     start_time = time.time()
@@ -108,7 +110,11 @@ def generate_image_from_prompt_and_images(
         model=model_name,
         contents=contents,
         config=types.GenerateContentConfig(
-            response_modalities=["TEXT", "IMAGE"],
+            response_modalities=["IMAGE"],
+            image_config=types.ImageConfig(
+                aspect_ratio=aspect_ratio,
+            ),
+            #candiate_count=candidate_count,
         ),
     )
     
@@ -846,3 +852,149 @@ def generate_transformation_prompts(image_uris: list[str]) -> list[Transformatio
 
     prompts = TransformationPrompts.model_validate_json(response.text)
     return prompts.transformations
+
+
+@retry(
+    wait=wait_exponential(multiplier=1, min=1, max=10),
+    stop=stop_after_attempt(3),
+    retry=retry_if_exception_type(Exception),
+    reraise=True,
+)
+def describe_image(image_uri: str) -> str:
+    """Generates a two-sentence description for a given image."""
+    model_name = cfg.MODEL_ID
+    config = types.GenerateContentConfig(temperature=0.2)
+    prompt_parts = [
+        "Describe this image in two sentences.",
+        types.Part.from_uri(file_uri=image_uri, mime_type="image/png"),
+    ]
+    response = client.models.generate_content(
+        model=model_name, contents=prompt_parts, config=config
+    )
+    return response.text.strip()
+
+
+class QuestionAnswer(BaseModel):
+    question: str
+    answer: bool = Field(..., description="True for 'yes', False for 'no'.")
+
+class EvaluationResult(BaseModel):
+    answers: list[QuestionAnswer]
+
+
+@retry(
+    wait=wait_exponential(multiplier=1, min=1, max=10),
+    stop=stop_after_attempt(3),
+    retry=retry_if_exception_type(Exception),
+    reraise=True,
+)
+def evaluate_image_with_questions(image_uri: str, questions: list[str]) -> EvaluationResult:
+    """Evaluates an image against a list of yes/no questions."""
+    model_name = cfg.MODEL_ID
+    config = types.GenerateContentConfig(
+        response_mime_type="application/json",
+        response_schema=EvaluationResult.model_json_schema(),
+        temperature=0.1,
+    )
+
+    prompt = "For the following image, answer each of the following questions with a simple 'yes' or 'no'. Return the answers as a structured JSON list of question and answer pairs.\n\n"
+    for q in questions:
+        prompt += f"- {q}\n"
+
+    prompt_parts = [
+        prompt,
+        types.Part.from_uri(file_uri=image_uri, mime_type="image/png"),
+    ]
+
+    response = client.models.generate_content(
+        model=model_name, contents=prompt_parts, config=config
+    )
+
+    return EvaluationResult.model_validate_json(response.text)
+
+
+class CritiqueQuestion(BaseModel):
+    question: str = Field(..., description="A yes/no question to evaluate an image.")
+
+class CritiqueQuestionList(BaseModel):
+    questions: list[CritiqueQuestion] = Field(..., max_length=5, min_length=5)
+
+
+@retry(
+    wait=wait_exponential(multiplier=1, min=1, max=10),
+    stop=stop_after_attempt(3),
+    retry=retry_if_exception_type(Exception),
+    reraise=True,
+)
+def generate_critique_questions(prompt: str, image_descriptions: list[str]) -> list[str]:
+    """Generates 5 yes/no questions based on a prompt and image descriptions."""
+    model_name = cfg.MODEL_ID
+    config = types.GenerateContentConfig(
+        response_mime_type="application/json",
+        response_schema=CritiqueQuestionList.model_json_schema(),
+        temperature=0.5,
+    )
+
+    meta_prompt = "Using the following prompt and the description of each image, come up with 5 yes/no questions that we could ask of the resulting image that would identify whether the generated images meets the intent of the user based upon the following:\n\n"
+    meta_prompt += f"Prompt: {prompt}\n\n"
+
+    for i, desc in enumerate(image_descriptions):
+        meta_prompt += f"Image {i+1} description: {desc}\n"
+    
+    response = client.models.generate_content(
+        model=model_name, contents=[meta_prompt], config=config
+    )
+
+    question_list = CritiqueQuestionList.model_validate_json(response.text)
+    return [q.question for q in question_list.questions]
+
+
+@retry(
+    wait=wait_exponential(multiplier=1, min=1, max=10),
+    stop=stop_after_attempt(3),
+    retry=retry_if_exception_type(Exception),
+    reraise=True,
+)
+def generate_text(prompt: str, images: list[str]) -> tuple[str, float]:
+    """Generates text from a prompt and a list of media files."""
+    print(f"Entering generate_text with prompt: {prompt} and {len(images)} images.")
+    start_time = time.time()
+    model_name = cfg.MODEL_ID
+
+    parts = [types.Part.from_text(text=prompt)]
+    for image_uri in images:
+        # More robust mime type detection
+        if any(image_uri.lower().endswith(ext) for ext in [".mp4", ".mov", ".avi", ".mkv", ".webm"]):
+            mime_type = "video/mp4" # General video type
+        elif any(image_uri.lower().endswith(ext) for ext in [".wav", ".mp3", ".flac"]):
+            mime_type = "audio/wav" # General audio type
+        elif any(image_uri.lower().endswith(ext) for ext in [".png", ".jpg", ".jpeg", ".webp", ".gif"]):
+            mime_type = "image/png" # General image type
+        elif image_uri.lower().endswith(".pdf"):
+            mime_type = "application/pdf"
+        else:
+            # Fallback for unknown types, though this may still cause errors
+            mime_type = "application/octet-stream"
+        
+        parts.append(types.Part.from_uri(file_uri=image_uri, mime_type=mime_type))
+    
+    print(f"Constructed parts for Gemini API: {parts}")
+
+    contents = [types.Content(role="user", parts=parts)]
+
+    client = GeminiModelSetup.init(
+        location=cfg.LOCATION,
+    )
+
+    print(f"Sending request to model: {model_name}")
+    response = client.models.generate_content(
+        model=model_name,
+        contents=contents,
+    )
+    print(f"Received raw response from model: {response}")
+    
+    end_time = time.time()
+    execution_time = end_time - start_time
+
+    print(f"Returning text: {response.text}, execution_time: {execution_time}")
+    return response.text, execution_time

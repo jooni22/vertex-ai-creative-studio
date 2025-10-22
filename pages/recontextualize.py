@@ -19,7 +19,7 @@ import mesop as me
 
 from common.metadata import add_media_item
 from common.storage import store_to_gcs
-from common.utils import gcs_uri_to_https_url
+from common.utils import create_display_url
 from components.dialog import dialog
 from components.edit_button.edit_button import edit_button
 from components.veo_button.veo_button import veo_button
@@ -31,6 +31,7 @@ from components.image_thumbnail import image_thumbnail
 from config.default import Default, ABOUT_PAGE_CONTENT
 from models.image_models import recontextualize_product_in_scene
 from state.state import AppState
+from common.analytics import track_model_call
 
 config = Default()
 
@@ -115,7 +116,7 @@ def recontextualize():
                     ):
                         for i, uri in enumerate(state.uploaded_image_gcs_uris):
                             image_thumbnail(
-                                image_uri=uri, index=i, on_remove=on_remove_image
+                                image_uri=create_display_url(uri), index=i, on_remove=on_remove_image
                             )
 
                 me.input(
@@ -177,7 +178,7 @@ def recontextualize():
                         for gcs_uri in state.result_gcs_uris:
                             with me.box(style=me.Style(display="flex", flex_direction="column", gap=8)):
                                 me.image(
-                                    src=gcs_uri_to_https_url(gcs_uri),
+                                    src=create_display_url(gcs_uri),
                                     style=me.Style(width="400px", border_radius=12),
                                 )
                                 with me.box(style=me.Style(display="flex", flex_direction="row", gap=8, justify_content="center")):
@@ -236,9 +237,15 @@ def on_generate(e: me.ClickEvent):
 
     print(f"Generating recontext image with sources: {state.uploaded_image_gcs_uris}")
     try:
-        result_gcs_uris = recontextualize_product_in_scene(
-            state.uploaded_image_gcs_uris, state.prompt, state.recontext_sample_count
-        )
+        with track_model_call(
+            model_name=config.MODEL_IMAGEN_PRODUCT_RECONTEXT,
+            prompt=state.prompt,
+            sample_count=state.recontext_sample_count,
+            source_images=state.uploaded_image_gcs_uris,
+        ):
+            result_gcs_uris = recontextualize_product_in_scene(
+                state.uploaded_image_gcs_uris, state.prompt, state.recontext_sample_count
+            )
         state.result_gcs_uris = result_gcs_uris
         add_media_item(
             user_email=app_state.user_email,

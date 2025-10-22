@@ -15,23 +15,25 @@
 """Gemini TTS page."""
 
 import datetime
-import uuid
 import json
+import time
+import uuid
 
 import mesop as me
-from common.analytics import log_ui_click, track_click
 
 import common.storage as storage
+from common.utils import create_display_url
+from common.analytics import log_ui_click, track_click
 from common.metadata import MediaItem, add_media_item_to_firestore
-from common.utils import gcs_uri_to_https_url
 from components.dialog import dialog, dialog_actions
 from components.header import header
 from components.page_scaffold import page_frame, page_scaffold
+from components.snackbar import snackbar
 from config.gemini_tts import (
-    GEMINI_TTS_MODELS,
-    GEMINI_TTS_MODEL_NAMES,
-    GEMINI_TTS_VOICES,
     GEMINI_TTS_LANGUAGES,
+    GEMINI_TTS_MODEL_NAMES,
+    GEMINI_TTS_MODELS,
+    GEMINI_TTS_VOICES,
 )
 from models.gemini_tts import synthesize_speech
 from state.state import AppState
@@ -56,9 +58,12 @@ class GeminiTtsState:
     selected_voice: str = "Callirrhoe"
     selected_language: str = "en-US"
     is_generating: bool = False
-    audio_url: str = ""
+    audio_gcs_uri: str = ""
+    audio_display_url: str = ""
     error: str = ""
     info_dialog_open: bool = False
+    show_snackbar: bool = False
+    snackbar_message: str = ""
 
 
 @me.page(
@@ -69,8 +74,13 @@ def page():
     """Renders the Gemini TTS page."""
     state = me.state(GeminiTtsState)
 
-    with page_scaffold(page_name="gemini-tts"):
-        with page_frame():
+    with page_scaffold(page_name="gemini-tts"):  # pylint: disable=E1129:not-context-manager
+        gemini_tts_page_content()
+
+
+def gemini_tts_page_content():
+    state = me.state(GeminiTtsState)
+    with page_frame():  # pylint: disable=E1129:not-context-manager
             header(
                 "Gemini Text-to-Speech",
                 "record_voice_over",
@@ -154,7 +164,6 @@ def page():
                         ],
                         on_selection_change=on_select_language,
                         value=state.selected_language,
-                        disabled=True,
                     )
                     with me.box(
                         style=me.Style(display="flex", flex_direction="row", gap=16)
@@ -206,10 +215,11 @@ def page():
                     if state.is_generating:
                         me.progress_spinner()
                         me.text("Generating audio...")
-                    elif state.audio_url:
-                        me.audio(src=state.audio_url)
+                    elif state.audio_display_url:
+                        me.audio(src=state.audio_display_url)
                     else:
                         me.text("Generated audio will appear here.")
+            snackbar(is_visible=state.show_snackbar, label=state.snackbar_message)
 
 def on_blur_text(e: me.InputBlurEvent):
     """Handles text input."""
@@ -297,7 +307,8 @@ def on_click_clear(e: me.ClickEvent):
     state.selected_model = GEMINI_TTS_MODEL_NAMES[0]
     state.selected_voice = "Callirrhoe"
     state.selected_language = "en-US"
-    state.audio_url = ""
+    state.audio_gcs_uri = ""
+    state.audio_display_url = ""
     state.error = ""
     state.is_generating = False
     yield
@@ -309,7 +320,7 @@ def on_click_generate(e: me.ClickEvent):
     state = me.state(GeminiTtsState)
     app_state = me.state(AppState)
     state.is_generating = True
-    state.audio_url = ""
+    state.audio_display_url = ""
     state.error = ""
     gcs_url = ""
     yield
@@ -332,11 +343,12 @@ def on_click_generate(e: me.ClickEvent):
             contents=audio_bytes,
         )
 
-        state.audio_url = gcs_uri_to_https_url(gcs_url)
+        state.audio_gcs_uri = gcs_url
+        state.audio_display_url = create_display_url(gcs_url)
 
     except Exception as ex:
         print(f"ERROR: Failed to generate audio. Details: {ex}")
-        app_state.snackbar_message = f"An error occurred: {ex}"
+        yield from _show_snackbar(state, f"An error occurred: {ex}")
 
     finally:
         state.is_generating = False
@@ -375,4 +387,13 @@ def close_info_dialog(e: me.ClickEvent):
     """Close the info dialog."""
     state = me.state(GeminiTtsState)
     state.info_dialog_open = False
+    yield
+
+
+def _show_snackbar(state: GeminiTtsState, message: str):
+    state.snackbar_message = message
+    state.show_snackbar = True
+    yield
+    time.sleep(3)
+    state.show_snackbar = False
     yield

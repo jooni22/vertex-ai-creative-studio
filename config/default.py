@@ -53,7 +53,7 @@ class NavConfig(BaseModel):
 class Default:
     """Defaults class"""
 
-    VERSION: str = "1.0.5" # veo modes
+    VERSION: str = "1.1.6" # gemini tts snackbar
     APP_ENV: str = os.environ.get("APP_ENV", "")
 
     SERVICE_ACCOUNT_EMAIL: str = os.environ.get("SERVICE_ACCOUNT_EMAIL")
@@ -64,14 +64,14 @@ class Default:
     MODEL_ID: str = os.environ.get("MODEL_ID", "gemini-2.5-flash")
     INIT_VERTEX: bool = True
     GEMINI_IMAGE_GEN_MODEL: str = os.environ.get(
-        "GEMINI_IMAGE_GEN_MODEL", "gemini-2.5-flash-image-preview",
+        "GEMINI_IMAGE_GEN_MODEL", "gemini-2.5-flash-image",
     )
     GEMINI_IMAGE_GEN_LOCATION: str = os.environ.get(
         "GEMINI_IMAGE_GEN_LOCATION", "global",
     )
 
     GEMINI_AUDIO_ANALYSIS_MODEL_ID: str = os.environ.get(
-        "GEMINI_AUDIO_ANALYSIS_MODEL_ID", "gemini-2.5-flash"
+        "GEMINI_AUDIO_ANALYSIS_MODEL_ID", "gemini-2.5-flash",
     )
 
     # Collections
@@ -91,6 +91,9 @@ class Default:
     IMAGE_BUCKET: str = os.environ.get("IMAGE_BUCKET", f"{PROJECT_ID}-assets/images")
     GCS_ASSETS_BUCKET: str = os.environ.get("GCS_ASSETS_BUCKET")
 
+    # Library
+    LIBRARY_MEDIA_PER_PAGE: int = int(os.environ.get("LIBRARY_MEDIA_PER_PAGE", 15))
+
     # Veo
     VEO_MODEL_ID: str = os.environ.get("VEO_MODEL_ID", "veo-2.0-generate-001")
     VEO_PROJECT_ID: str = os.environ.get("VEO_PROJECT_ID", PROJECT_ID)
@@ -103,12 +106,13 @@ class Default:
     VEO_EXP_PROJECT_ID: str = os.environ.get("VEO_EXP_PROJECT_ID", PROJECT_ID)
 
     # VTO
+    VTO_LOCATION: str = os.environ.get("VTO_LOCATION", "us-central1")
     VTO_MODEL_ID: str = os.environ.get("VTO_MODEL_ID", "virtual-try-on-preview-08-04")
     GENMEDIA_VTO_MODEL_COLLECTION_NAME: str = os.environ.get(
-        "GENMEDIA_VTO_MODEL_COLLECTION_NAME", "genmedia-vto-model"
+        "GENMEDIA_VTO_MODEL_COLLECTION_NAME", "genmedia-vto-model",
     )
     GENMEDIA_VTO_CATALOG_COLLECTION_NAME: str = os.environ.get(
-        "GENMEDIA_VTO_CATALOG_COLLECTION_NAME", "genmedia-vto-catalog"
+        "GENMEDIA_VTO_CATALOG_COLLECTION_NAME", "genmedia-vto-catalog",
     )
 
     # Temperatures for Character Consistency Workflow
@@ -158,6 +162,8 @@ class Default:
     )
 
     IMAGEN_PROMPTS_JSON = "prompts/imagen_prompts.json"
+
+    USE_MEDIA_PROXY: bool = os.environ.get("USE_MEDIA_PROXY", "true").lower() == "true"
 
     image_modifiers: list[str] = field(
         default_factory=lambda: [

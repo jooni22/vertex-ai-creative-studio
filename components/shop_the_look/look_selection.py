@@ -18,7 +18,7 @@ import mesop as me
 
 import models.shop_the_look_workflow as shop_the_look_workflow
 from common.storage import store_to_gcs
-from common.utils import gcs_uri_to_https_url
+from common.utils import create_display_url
 from config.default import Default
 from state.shop_the_look_state import PageState
 
@@ -103,6 +103,7 @@ def look_selection():
                             width="30px",
                             height="30px",
                             font_size="30px",
+                            pointer_events="none",
                         ),
                     )
                     me.icon(
@@ -115,6 +116,7 @@ def look_selection():
                             width="50px",
                             height="50px",
                             font_size="50px",
+                            pointer_events="none",
                         ),
                     )
                     me.text(
@@ -125,6 +127,7 @@ def look_selection():
                             bottom="35px",
                             left="45px",
                             font_size="20px",
+                            pointer_events="none",
                         ),
                     )
             with me.box(
@@ -165,6 +168,7 @@ def look_selection():
                         width="30px",
                         height="30px",
                         font_size="30px",
+                        pointer_events="none",
                     ),
                 )
                 me.icon(
@@ -177,6 +181,7 @@ def look_selection():
                         width="50px",
                         height="50px",
                         font_size="50px",
+                        pointer_events="none",
                     ),
                 )
                 me.text(
@@ -187,6 +192,7 @@ def look_selection():
                         bottom="35px",
                         left="30px",
                         font_size="20px",
+                        pointer_events="none",
                     ),
                 )
 
@@ -228,6 +234,7 @@ def look_selection():
                         width="30px",
                         height="30px",
                         font_size="30px",
+                        pointer_events="none",
                     ),
                 )
                 me.icon(
@@ -240,6 +247,7 @@ def look_selection():
                         width="70px",
                         height="70px",
                         font_size="70px",
+                        pointer_events="none",
                     ),
                 )
                 me.text(
@@ -250,6 +258,7 @@ def look_selection():
                         bottom="35px",
                         left="35px",
                         font_size="20px",
+                        pointer_events="none",
                     ),
                 )
 
@@ -291,6 +300,7 @@ def look_selection():
                         width="30px",
                         height="30px",
                         font_size="30px",
+                        pointer_events="none",
                     ),
                 )
                 me.icon(
@@ -303,6 +313,7 @@ def look_selection():
                         width="50px",
                         height="50px",
                         font_size="50px",
+                        pointer_events="none",
                     ),
                 )
                 me.text(
@@ -313,6 +324,7 @@ def look_selection():
                         bottom="35px",
                         left="35px",
                         font_size="20px",
+                        pointer_events="none",
                     ),
                 )
 
@@ -325,7 +337,7 @@ def look_selection():
                         align_items="left",
                     )
                 ):
-                    img = gcs_uri_to_https_url(item.clothing_image)
+                    img = create_display_url(item.clothing_image)
                     with me.box(
                         key=f"{item.item_id}_{item.article_type}",
                         style=me.Style(
@@ -416,7 +428,7 @@ def on_upload_article_image(e: me.UploadEvent):
             file.getvalue(),
         )
         state.reference_image_gcs_clothing.append(f"{gcs_url}")
-        state.reference_image_uri_clothing.append(gcs_uri_to_https_url(gcs_url))
+        state.reference_image_uri_clothing.append(create_display_url(gcs_url))
         article_type = gcs_url.split("/")[-2]
         shop_the_look_workflow.store_article_data(file_path, article_type)
 

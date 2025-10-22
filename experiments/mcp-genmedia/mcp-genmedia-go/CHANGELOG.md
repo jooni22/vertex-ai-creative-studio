@@ -1,5 +1,19 @@
 # Changelog
 
+## 2025-10-09
+
+*   **Feat:** Standardized network port configuration across all MCP servers (`avtool`, `chirp3`, `imagen`, `lyria`, `veo`, `gemini`). All servers now follow a consistent precedence: `--port` flag, `PORT` environment variable, and then transport-specific defaults (`8080` for `http`, `8081` for `sse`).
+*   **Feat:** Added full HTTP transport support to the `mcp-gemini-go` server, making it accessible via HTTP in addition to `stdio`.
+*   **Fix:** Corrected the port configuration logic in `mcp-avtool-go` to align with the new standard, including support for the `-p` short flag and a centralized `determinePort` function.
+*   **Chore:** Incremented the version number for all MCP servers.
+
+## 2025-10-01
+
+*   **Feat:** Disabled OpenTelemetry tracing by default across all MCP servers. It can be re-enabled by setting the `OTEL_ENABLED=true` environment variable.
+*   **Fix:** Removed the unused `-otel` command-line flag from the `mcp-veo-go` server.
+*   **Test:** Added `verify.sh` scripts to `mcp-chirp3-go`, `mcp-avtool-go`, and `mcp-lyria-go` to provide a consistent, post-build liveness check.
+*   **Chore:** Incremented the version number for all MCP servers.
+
 ## 2025-08-31
 
 *   **Feat:** Added `gemini_audio_tts` and `list_gemini_voices` tools to the `mcp-gemini-go` server to provide speech synthesis capabilities using Gemini TTS models.

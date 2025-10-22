@@ -32,14 +32,24 @@ def page():
 
     test_pages = [
         {
+            "title": "Banana Studio",
+            "description": "An experimental Gemini Image Generation page.",
+            "route": "/banana-studio",
+        },
+        {
+            "title": "Gemini Writers Workshop",
+            "description": "A place to generate text content from prompts and optional media assets.",
+            "route": "/gemini-writers-workshop",
+        },
+        {
             "title": "VTO Model Composite Card Generator",
             "description": "A tool to generate a matrix of virtual models with different attributes.",
             "route": "/test_vto_prompt_generator",
         },
         {
-            "title": "Infinite Scroll",
-            "description": "A test page for the infinite scroll library chooser.",
-            "route": "/test_infinite_scroll",
+            "title": "Selfie Camera",
+            "description": "A test page for the selfie camera component.",
+            "route": "/selfie",
         },
         {
             "title": "Uploader",
@@ -57,14 +67,14 @@ def page():
             "route": "/test_pixie_compositor",
         },
         {
-            "title": "Library v2",
-            "description": "New Library page",
-            "route": "/library_v2",
+            "title": "Media Chooser Test",
+            "description": "A test page for the generic, high-performance media chooser component.",
+            "route": "/test_media_chooser",
         },
         {
-            "title": "Legacy Library",
-            "description": "Legacy Library page",
-            "route": "/legacy_library",
+            "title": "Proxy Caching Test",
+            "description": "A page to compare the performance of signed URLs vs. a caching proxy endpoint.",
+            "route": "/test_proxy_caching",
         }
     ]
 

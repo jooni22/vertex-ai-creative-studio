@@ -12,11 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Package main implements an MCP server for Google's Imagen models.
+
 package main
 
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -24,6 +27,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -40,17 +44,20 @@ var (
 	appConfig   *common.Config
 	genAIClient *genai.Client // Global GenAI client
 	transport   string
+	port        int
 )
 
 const (
 	serviceName = "mcp-imagen-go"
-	version     = "1.10.0" // Add prompt support
+	version     = "1.12.0" // Standardize port handling
 )
 
 func init() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 	flag.StringVar(&transport, "t", "stdio", "Transport type (stdio, sse, or http)")
 	flag.StringVar(&transport, "transport", "stdio", "Transport type (stdio, sse, or http)")
+	flag.IntVar(&port, "p", 0, "Port for SSE/HTTP server (defaults to PORT env var or 8080/8081)")
+	flag.IntVar(&port, "port", 0, "Port for SSE/HTTP server (defaults to PORT env var or 8080/8081)")
 	flag.Parse()
 }
 
@@ -62,11 +69,13 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to initialize tracer provider: %v", err)
 	}
-	defer func() {
-		if err := tp.Shutdown(context.Background()); err != nil {
-			log.Printf("Error shutting down tracer provider: %v", err)
-		}
-	}()
+	if tp != nil {
+		defer func() {
+			if err := tp.Shutdown(context.Background()); err != nil {
+				log.Printf("Error shutting down tracer provider: %v", err)
+			}
+		}()
+	}
 
 	log.Printf("Initializing global GenAI client...")
 	clientCtx, clientCancel := context.WithTimeout(context.Background(), 1*time.Minute)
@@ -88,14 +97,34 @@ func main() {
 	}
 	log.Printf("Global GenAI client initialized successfully.")
 
-		s := server.NewMCPServer("Imagen", version, server.WithResourceCapabilities(true, true))
+	s := server.NewMCPServer("Imagen", version, server.WithResourceCapabilities(true, true))
 	registerImagenEditingTools(s, genAIClient, appConfig)
+
+	s.AddResource(mcp.NewResource(
+		"imagen://models",
+		"Supported Imagen Models",
+		mcp.WithResourceDescription("A list of supported Imagen models and their aliases."),
+		mcp.WithMIMEType("application/json"),
+	), func(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
+		jsonData, err := json.MarshalIndent(common.SupportedImagenModels, "", "  ")
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal supported models: %w", err)
+		}
+		return []mcp.ResourceContents{
+			mcp.TextResourceContents{
+				URI:      "imagen://models",
+				MIMEType: "application/json",
+				Text:     string(jsonData),
+			},
+		},
+		nil
+	})
 
 	tool := mcp.NewTool("imagen_t2i",
 		mcp.WithDescription("Generates an image based on a text prompt using Google's Imagen models. The image can be returned as base64 data, saved to a local directory, or stored in a Google Cloud Storage bucket."),
 		mcp.WithString("prompt", mcp.Required(), mcp.Description("Prompt for text to image generation")),
 		mcp.WithString("model",
-			mcp.DefaultString("imagen-3.0-generate-002"),
+			mcp.DefaultString("imagen-4.0-fast-generate-001"),
 			mcp.Description(common.BuildImagenModelDescription()),
 		),
 		mcp.WithNumber("num_images",
@@ -108,6 +137,10 @@ func main() {
 			mcp.DefaultString("1:1"),
 			mcp.Description("Aspect ratio of the generated images (e.g., \"1:1\", \"16:9\", \"9:16\")."),
 		),
+		mcp.WithString("image_size",
+			mcp.DefaultString("1K"),
+			mcp.Description("Optional. The size of the largest dimension of the generated image. Supported sizes are 1K and 2K (not supported for Imagen 3 models)."),
+		),
 		mcp.WithString("gcs_bucket_uri", mcp.Description("Optional. GCS URI prefix to store the generated images (e.g., your-bucket/outputs/ or gs://your-bucket/outputs/).")),
 		mcp.WithString("output_directory", mcp.Description("Optional. Local directory to save the generated image(s) to.")),
 	)
@@ -115,7 +148,7 @@ func main() {
 	handlerWithClient := func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		return imagenGenerationHandler(genAIClient, ctx, request)
 	}
-		s.AddTool(tool, handlerWithClient)
+	s.AddTool(tool, handlerWithClient)
 
 	s.AddPrompt(mcp.NewPrompt("generate-image",
 		mcp.WithPromptDescription("Generates an image from a text prompt."),
@@ -140,7 +173,7 @@ func main() {
 			args[k] = v
 		}
 		toolRequest := mcp.CallToolRequest{
-			Params:   mcp.CallToolParams{Arguments: args},
+			Params: mcp.CallToolParams{Arguments: args},
 		}
 		result, err := imagenGenerationHandler(genAIClient, ctx, toolRequest)
 		if err != nil {
@@ -162,56 +195,66 @@ func main() {
 		), nil
 	})
 
-	log.Printf("Starting Imagen MCP Server (Version: %s, Transport: %s)", version, transport)
-
-	if transport == "sse" {
-		// Assuming 8081 is the desired SSE port for Imagen to avoid conflict if HTTP uses 8080
-		sseServer := server.NewSSEServer(s, server.WithBaseURL("http://localhost:8081"))
-		log.Printf("Imagen MCP Server listening on SSE at :8081 with t2i tools")
-		if err := sseServer.Start(":8081"); err != nil {
+	switch transport {
+	case "sse":
+		ssePort := 8081 // Default SSE port
+		if port != 0 {
+			ssePort = port
+		} else if p, err := strconv.Atoi(common.GetEnv("PORT", "")); err == nil {
+			ssePort = p
+		}
+		log.Printf("Starting Imagen MCP Server (Version: %s, Transport: sse, Port: %d)", version, ssePort)
+		sseServer := server.NewSSEServer(s, server.WithBaseURL(fmt.Sprintf("http://localhost:%d", ssePort)))
+		if err := sseServer.Start(fmt.Sprintf(":%d", ssePort)); err != nil {
 			log.Fatalf("SSE Server error: %v", err)
 		}
-	} else if transport == "http" {
+	case "http":
+		httpPort := 8080 // Default HTTP port
+		if port != 0 {
+			httpPort = port
+		} else if p, err := strconv.Atoi(common.GetEnv("PORT", "")); err == nil {
+			httpPort = p
+		}
+		log.Printf("Starting Imagen MCP Server (Version: %s, Transport: http, Port: %d)", version, httpPort)
 		mcpHTTPHandler := server.NewStreamableHTTPServer(s) // Base path /mcp
-
-		// Configure CORS
 		c := cors.New(cors.Options{
-			AllowedOrigins:   []string{"*"}, // Consider making this configurable via env var for production
+			AllowedOrigins:   []string{"*"},
 			AllowedMethods:   []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodOptions, http.MethodHead},
 			AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token", "X-MCP-Progress-Token"},
 			ExposedHeaders:   []string{"Link"},
 			AllowCredentials: true,
-			MaxAge:           300, // In seconds
+			MaxAge:           300,
 		})
-
 		handlerWithCORS := c.Handler(mcpHTTPHandler)
-
-		httpPort := os.Getenv("PORT")
-		if httpPort == "" {
-			httpPort = "8080"
-		}
-
-		listenAddr := fmt.Sprintf(":%s", httpPort)
-		log.Printf("Imagen MCP Server listening on HTTP at %s/mcp with t2i tools and CORS enabled", listenAddr)
+		listenAddr := fmt.Sprintf(":%d", httpPort)
 		if err := http.ListenAndServe(listenAddr, handlerWithCORS); err != nil {
 			log.Fatalf("HTTP Server error: %v", err)
 		}
-	} else { // Default to stdio
-		if transport != "stdio" && transport != "" {
-			log.Printf("Unsupported transport type '%s' specified, defaulting to stdio.", transport)
-		}
-		log.Printf("Imagen MCP Server listening on STDIO with t2i tools")
+	case "stdio":
+		log.Printf("Starting Imagen MCP Server (Version: %s, Transport: stdio)", version)
 		if err := server.ServeStdio(s); err != nil {
 			log.Fatalf("STDIO Server error: %v", err)
 		}
+	default:
+		log.Fatalf("Unsupported transport type: %s. Please use 'stdio', 'sse', or 'http'.", transport)
 	}
+
 	log.Println("Imagen Server has stopped.")
 }
 
 type ImagenOutput struct {
-	GCSURIs      []string `json:"gcsUris"`
-	HTTPSURLs    []string `json:"httpsURLs"`
-	Message      string   `json:"message"`
+	GCSURIs   []string `json:"gcsUris"`
+	HTTPSURLs []string `json:"httpsURLs"`
+	Message   string   `json:"message"`
+}
+
+func contains(s []string, e string) bool {
+	for _, a := range s {
+		if a == e {
+			return true
+		}
+	}
+	return false
 }
 
 func imagenGenerationHandler(client *genai.Client, ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -226,8 +269,8 @@ func imagenGenerationHandler(client *genai.Client, ctx context.Context, request 
 
 	modelInput, ok := request.GetArguments()["model"].(string)
 	if !ok || modelInput == "" {
-		log.Printf("Model not provided or empty, using default: imagen-3.0-generate-002")
-		modelInput = "imagen-3.0-generate-002"
+		log.Printf("Model not provided or empty, using default: imagen-4.0-fast-generate-001")
+		modelInput = "imagen-4.0-fast-generate-001"
 	}
 
 	canonicalName, found := common.ResolveImagenModel(modelInput)
@@ -238,8 +281,7 @@ func imagenGenerationHandler(client *genai.Client, ctx context.Context, request 
 	modelDetails := common.SupportedImagenModels[model]
 
 	var numberOfImages int32 = 1
-	numImagesArg, ok := request.GetArguments()["num_images"].(interface{})
-	if ok {
+	if numImagesArg, ok := request.GetArguments()["num_images"]; ok {
 		if numImagesFloat, okFloat := numImagesArg.(float64); okFloat {
 			numberOfImages = int32(numImagesFloat)
 		} else {
@@ -250,18 +292,33 @@ func imagenGenerationHandler(client *genai.Client, ctx context.Context, request 
 	if numberOfImages < 1 {
 		numberOfImages = 1
 	}
-	if numberOfImages > modelDetails.MaxImages {
-		log.Printf("Warning: Requested %d images, but model %s only supports up to %d. Adjusting to max.", numberOfImages, model, modelDetails.MaxImages)
-		numberOfImages = modelDetails.MaxImages
-	}
-
-	aspectRatio, ok := request.GetArguments()["aspect_ratio"].(string)
-	if !ok || aspectRatio == "" {
-		log.Printf("Aspect ratio not provided or empty, using default: 1:1")
-		aspectRatio = "1:1"
-	}
-
-	// ... rest of handler ...
+			if numberOfImages > modelDetails.MaxImages {
+				log.Printf("Warning: Requested %d images, but model %s only supports up to %d. Adjusting to max.", numberOfImages, model, modelDetails.MaxImages)
+				numberOfImages = modelDetails.MaxImages
+			}
+	
+			aspectRatio, ok := request.GetArguments()["aspect_ratio"].(string)
+			if !ok || aspectRatio == "" {
+				log.Printf("Aspect ratio not provided or empty, using default: 1:1")
+				aspectRatio = "1:1"
+			}
+	
+					if !contains(modelDetails.SupportedAspectRatios, aspectRatio) {
+						log.Printf("Warning: Requested aspect ratio '%s' is not supported by model %s. Supported ratios are: %v. Falling back to '1:1'.", aspectRatio, model, modelDetails.SupportedAspectRatios)
+						aspectRatio = "1:1" // Fallback to a safe default
+					}
+			
+					imageSize, _ := request.GetArguments()["image_size"].(string)
+					var finalImageSize string
+					if imageSize != "" {
+						if len(modelDetails.SupportedImageSizes) == 0 {
+							log.Printf("Warning: image_size parameter ('%s') provided, but model %s does not support it. The parameter will be ignored.", imageSize, model)
+						} else if !contains(modelDetails.SupportedImageSizes, imageSize) {
+							log.Printf("Warning: Requested image size '%s' is not supported by model %s. Supported sizes are: %v. The parameter will be ignored.", imageSize, model, modelDetails.SupportedImageSizes)
+						} else {
+							finalImageSize = imageSize
+						}
+					}	// ... rest of handler ...
 	gcsOutputURI := ""
 	gcsBucketUriParam, _ := request.GetArguments()["gcs_bucket_uri"].(string)
 	gcsBucketUriParam = strings.TrimSpace(gcsBucketUriParam)
@@ -295,6 +352,7 @@ func imagenGenerationHandler(client *genai.Client, ctx context.Context, request 
 		attribute.String("model", model),
 		attribute.Int("num_images", int(numberOfImages)),
 		attribute.String("aspect_ratio", aspectRatio),
+		attribute.String("image_size", finalImageSize),
 		attribute.String("gcs_bucket_uri", gcsBucketUriParam),
 		attribute.String("output_directory", outputDir),
 	)
@@ -305,13 +363,14 @@ func imagenGenerationHandler(client *genai.Client, ctx context.Context, request 
 		log.Printf("Incoming context for prompt \"%s\" was already canceled: %v", prompt, ctx.Err())
 		return &mcp.CallToolResult{Content: []mcp.Content{mcp.TextContent{Type: "text", Text: errMsg}}}, nil
 	default:
-		log.Printf("Handling imagen request: Prompt=\"%s\", Model=%s, NumImages=%d, AspectRatio=%s, GCSOutputURI='%s', OutputDirectory='%s'",
-			prompt, model, numberOfImages, aspectRatio, gcsOutputURI, outputDir)
+		log.Printf("Handling imagen request: Prompt=\"%s\", Model=%s, NumImages=%d, AspectRatio=%s, ImageSize=%s, GCSOutputURI='%s', OutputDirectory='%s'",
+			prompt, model, numberOfImages, aspectRatio, finalImageSize, gcsOutputURI, outputDir)
 	}
 
 	config := &genai.GenerateImagesConfig{
 		NumberOfImages: numberOfImages,
 		AspectRatio:    aspectRatio,
+		ImageSize:      finalImageSize,
 		OutputGCSURI:   gcsOutputURI,
 	}
 
@@ -352,7 +411,7 @@ func imagenGenerationHandler(client *genai.Client, ctx context.Context, request 
 
 	if response == nil || len(response.GeneratedImages) == 0 {
 		noImageText := fmt.Sprintf("Sorry, I couldn't generate any images for the prompt \"%s\".", prompt)
-		log.Printf(noImageText)
+		log.Print(noImageText)
 		contentItems = append(contentItems, mcp.TextContent{Type: "text", Text: noImageText})
 		return &mcp.CallToolResult{Content: contentItems}, nil
 	}

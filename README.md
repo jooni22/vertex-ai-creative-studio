@@ -9,6 +9,7 @@
 
 
 # Table of Contents
+- [GenMedia Creative Studio | Vertex AI](#genmedia-creative-studio--vertex-ai)
 - [Table of Contents](#table-of-contents)
 - [GenMedia Creative Studio](#genmedia-creative-studio)
   - [Experiments](#experiments)
@@ -23,9 +24,10 @@
     - [4. Wait for certificate to go to provisioned state](#4-wait-for-certificate-to-go-to-provisioned-state)
   - [Deploying using Cloud Run Domain](#deploying-using-cloud-run-domain)
     - [1. Initialize Terraform](#1-initialize-terraform-1)
-    - [2. Build and Deploy Container Image](#2-build-and-deploy-container-image-1)
+    - [2. Build and Deploy Container Image](#2-build-and-deploy-container-image)
     - [3. Edit Cloud Run's IAP Policy to provide initial user's access](#3-edit-cloud-runs-iap-policy-to-provide-initial-users-access)
   - [Deploying to Cloud Shell for Testing](#deploying-to-cloud-shell-for-testing)
+- [Adding Additional Users](#adding-additional-users)
 - [Solution Design](#solution-design)
   - [Custom Domain Using Identity Aware Proxy w/Load Balancer](#custom-domain-using-identity-aware-proxy-wload-balancer)
   - [Cloud Run Domain Using Identity Aware Proxy w/Cloud Run](#cloud-run-domain-using-identity-aware-proxy-wcloud-run)
@@ -35,13 +37,17 @@
   - [Setting up your development environment](#setting-up-your-development-environment)
     - [Python virtual environment](#python-virtual-environment)
     - [Application Environment variables](#application-environment-variables)
-  - [GenMedia Creative Studio - v.next](#genmedia-creative-studio---developing)
+  - [GenMedia Creative Studio - Developing](#genmedia-creative-studio---developing)
     - [Running](#running)
     - [Developing](#developing)
+  - [Contributing changes](#contributing-changes)
+  - [Licensing](#licensing)
 - [Disclaimer](#disclaimer)
 
 
 # GenMedia Creative Studio
+
+> **Browser Compatibility:** For the best experience, we recommend using Google Chrome. Some features may not work as expected on other browsers, such as Safari or Firefox.
 
 GenMedia Creative Studio is a web application showcasing Google Cloud's generative media - Veo, Lyria, Chirp, Gemini 2.5 Flash Image Generation (nano-banana), and Gemini TTS along with custom workflows and techniques for creative exploration and inspiration. We're looking forward to see what you create!
 
@@ -141,7 +147,7 @@ Because you are using a custom domain, you will need to export one more variable
 export DOMAIN_NAME=creativestudio.example.com
 ```
 
-Make sure your command line is in the folder containing this README (i.e., experiments/veo-app). Then create the `terraform.tfvars` using the following command:
+Make sure your command line is in the folder containing this README (i.e., in the root of the main repository, /). Then create the `terraform.tfvars` using the following command:
 
 ```bash
 cat > terraform.tfvars << EOF
@@ -183,7 +189,7 @@ If you are unable to create a DNS record in your corporate domain, you can also 
 
 ### 1. Initialize Terraform
 
-Make sure your command line is in the folder containing this README (i.e., experiments/veo-app). Then create the `terraform.tfvars` using the following command:
+Make sure your command line is in the folder containing this README (i.e., in the root of the main repository, /). Then create the `terraform.tfvars` using the following command:
 
 ```bash
 cat > terraform.tfvars << EOF
@@ -226,7 +232,15 @@ Congratulations, you can now navigate to the address provided in the `cloud-run-
 ## Deploying to Cloud Shell for Testing
 Use this option if you want to quickly run the UI without having to setup a local development environment. To get started, use Cloud Shell and follow the tutorial instructions.
 
-  [![Open in Cloud Shell](https://gstatic.com/cloudssh/images/open-btn.svg)](https://shell.cloud.google.com/cloudshell/editor?cloudshell_git_repo=https://github.com/GoogleCloudPlatform/vertex-ai-creative-studio.git&cloudshell_workspace=experiments/veo-app&cloudshell_tutorial=tutorial.md)
+  [![Open in Cloud Shell](https://gstatic.com/cloudssh/images/open-btn.svg)](https://shell.cloud.google.com/cloudshell/editor?cloudshell_git_repo=https://github.com/GoogleCloudPlatform/vertex-ai-creative-studio.git&cloudshell_tutorial=tutorial.md)
+
+# Adding Additional Users
+
+With any of the deployment options above that use IAP, if you need to add additional users, there are two steps to take to make sure those users can both access the application and the images generated:
+* Application Access - Add the user to IAP. Follow [these steps](https://cloud.google.com/iap/docs/managing-access#managing_access_console) if you deployed using a load balancer, granting the user the *IAP-Secured Web App User* role. If you deployed using only the Cloud Run provided URL, follow [these steps](https://cloud.google.com/run/docs/securing/identity-aware-proxy-cloud-run#manage_user_or_group_access).
+* Image Access - The images are served using the authenticated GCS URL of each storage object so users need to be granted the *Storage Object Viewer* role. The name of the bucket is available as the `assets-bucket` Terraform output.
+
+> **Note:** For the application to function correctly, the **Cloud Run service account** must have the **`Storage Object Viewer`** (`roles/storage.objectViewer`) role on the GCS bucket. This allows the application to read media assets and serve them to users through the proxy.
 
 # Solution Design
 There are two way to deploy this solution. One using a custom domain with a load balancer and IAP integration. The other is using Cloud Run's default URL and integrating IAP with Cloud Run. The below diagrams depict the components used for each option.
