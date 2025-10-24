@@ -1,0 +1,813 @@
+# Repozytorium Vertex AI Creative Studio
+
+Repozytorium **GoogleCloudPlatform/vertex-ai-creative-studio** znajduje się pod adresem https://github.com/GoogleCloudPlatform/vertex-ai-creative-studio i jest główną demonstracją możliwości generatywnych mediów w Vertex AI.[^1_1]
+
+## Kluczowe informacje o repozytorium
+
+Projekt zawiera **GenMedia Creative Studio** - aplikację webową zbudowaną w Pythonie przy użyciu frameworka Mesop, która prezentuje możliwości modeli Google Cloud: Imagen 3/4, Veo 2/3, Gemini 2.5 Flash, oraz inne. Repozytorium ma ponad 430 gwiazdek i jest aktywnie rozwijane z licencją Apache 2.0.[^1_1]
+
+## Funkcje istotne dla przetwarzania ghost mannequin
+
+Repozytorium zawiera kilka funkcji przydatnych do obsługi efektu ghost mannequin:
+
+**Virtual Try-On** - znajduje się w folderze eksperymentów i pozwala na wirtualne przymierzanie ubrań na dużą skalę.[^1_1]
+
+**Imagen Product Recontextualization** - narzędzie do rekontekstualizacji obrazów produktów na dużą skalę, które może być wykorzystane do zmiany tła i kontekstu ubrań.[^1_2][^1_1]
+
+## Struktura kodu
+
+Repozytorium składa się z:
+
+- **76.8%** Jupyter Notebooks z przykładami
+- **16.8%** kod Python (główna aplikacja)
+- Komponenty TypeScript i JavaScript
+- Skrypty shell do wdrożenia[^1_1]
+
+
+## Jak zbudować aplikację do ghost mannequin
+
+### Wykorzystanie API Imagen
+
+Vertex AI oferuje kilka podejść do realizacji efektu ghost mannequin:
+
+**1. Inpainting (usuwanie obiektu)**: Funkcja pozwala na usunięcie manekina z obrazu poprzez zaznaczenie maski i wypełnienie brakujących obszarów. Można użyć modelu `imagegeneration@006` lub nowszych wersji Imagen 3.[^1_3][^1_4]
+
+**2. Outpainting (rozszerzanie obrazu)**: Umożliwia rozszerzenie zawartości obrazu poza oryginalne granice, przydatne do dostosowania proporcji obrazu.[^1_5][^1_3]
+
+**3. Product Recontextualization**: API `imagen-product-recontext-preview-06-30` pozwala na edycję obrazów produktów w różnych scenach i tłach. Obsługuje kategorię "Clothing" (ubrania) i może przetwarzać do 3 zdjęć tego samego produktu z różnych kątów.[^1_6][^1_2]
+
+### Przykładowa implementacja
+
+```python
+import vertexai
+from vertexai.preview.vision_models import Image, ImageGenerationModel
+
+vertexai.init(project=PROJECT_ID, location="us-central1")
+model = ImageGenerationModel.from_pretrained("imagegeneration@006")
+
+base_img = Image.load_from_file(location=input_file)
+mask_img = Image.load_from_file(location=mask_file)
+
+images = model.edit_image(
+    base_image=base_img,
+    mask=mask_img,
+    prompt="remove mannequin",
+    edit_mode="inpainting"
+)
+```
+
+
+### Instalacja i uruchomienie
+
+Aby rozpocząć pracę z repozytorium:
+
+```bash
+git clone https://github.com/GoogleCloudPlatform/vertex-ai-creative-studio.git
+cd vertex-ai-creative-studio
+uv sync  # instalacja zależności
+```
+
+Następnie skonfiguruj zmienne środowiskowe w pliku `.env` (wzór w `dotenv.template`) i uruchom aplikację.[^1_1]
+
+### Dostęp do funkcji Product Recontext
+
+Funkcje specjalistyczne jak Product Recontextualization wymagają wypełnienia formularza dostępu: **Vertex AI - Generative Media for Marketing Access Request**.[^1_2][^1_6]
+
+## Dodatkowe zasoby
+
+W folderze **Experiments** znajdziesz notebooki demonstracyjne z konkretnymi przykładami użycia, w tym notebook o Virtual Try-On i Product Recontextualization. Repozytorium zawiera również przykłady w **GoogleCloudPlatform/generative-ai** z szczegółowymi notebookami Colab pokazującymi edycję obrazów Imagen 3.[^1_7][^1_8][^1_1]
+<span style="display:none">[^1_10][^1_11][^1_12][^1_13][^1_14][^1_15][^1_16][^1_17][^1_18][^1_19][^1_20][^1_21][^1_22][^1_23][^1_24][^1_25][^1_26][^1_27][^1_28][^1_29][^1_30][^1_31][^1_32][^1_33][^1_34][^1_35][^1_36][^1_37][^1_38][^1_39][^1_9]</span>
+
+<div align="center">⁂</div>
+
+[^1_1]: https://github.com/GoogleCloudPlatform/vertex-ai-creative-studio
+
+[^1_2]: https://cloud.google.com/vertex-ai/generative-ai/docs/model-reference/imagen-product-recontext-api
+
+[^1_3]: https://cloud.google.com/vertex-ai/generative-ai/docs/image/edit-outpainting
+
+[^1_4]: https://docs.cloud.google.com/vertex-ai/generative-ai/docs/image/edit-insert-objects
+
+[^1_5]: https://cloud.google.com/vertex-ai/generative-ai/docs/samples/generativeaionvertexai-imagen-edit-image-outpainting-mask
+
+[^1_6]: https://cloud.google.com/vertex-ai/generative-ai/docs/image/recontextualize-product-images
+
+[^1_7]: https://docs.cloud.google.com/vertex-ai/generative-ai/docs/cookbook
+
+[^1_8]: https://colab.research.google.com/github/GoogleCloudPlatform/generative-ai/blob/main/vision/getting-started/imagen3_editing.ipynb
+
+[^1_9]: https://github.com/GoogleCloudPlatform/vertex-ai-creative-studio/releases
+
+[^1_10]: https://github.com/GoogleCloudPlatform/vertex-ai-creative-studio/activity
+
+[^1_11]: https://github.com/GoogleCloudPlatform/vertex-ai-creative-studio/issues
+
+[^1_12]: https://github.com/GoogleCloudPlatform/vertex-ai-creative-studio/pulls
+
+[^1_13]: https://clippingpathking.com/ghost-mannequin/
+
+[^1_14]: https://cloud.google.com/generative-ai-studio
+
+[^1_15]: https://cloud.google.com/vertex-ai/docs/workbench/instances/save-to-github
+
+[^1_16]: https://www.youtube.com/watch?v=7upPlWfodqY
+
+[^1_17]: https://cloud.google.com/vertex-ai/generative-ai/docs/samples
+
+[^1_18]: https://github.com/GoogleCloudPlatform/generative-ai
+
+[^1_19]: https://techcloudltd.com/ghost-mannequin-services/
+
+[^1_20]: https://docs.cloud.google.com/vertex-ai/generative-ai/docs/prompt-gallery
+
+[^1_21]: https://github.com/topics/vertex-ai
+
+[^1_22]: https://www.toolify.ai/compare/image-leap-vs-optimum-vertex-ai
+
+[^1_23]: https://cloud.google.com/vertex-ai/generative-ai/docs/video/overview
+
+[^1_24]: https://cloud.google.com/vertex-ai/generative-ai/docs/streamlit/setup-environment
+
+[^1_25]: https://www.bigcommerce.com/blog/ghost-mannequin-photography-101/
+
+[^1_26]: https://docs.cloud.google.com/vertex-ai/generative-ai/docs/models
+
+[^1_27]: https://googlecloudplatform.github.io/applied-ai-engineering-samples/
+
+[^1_28]: https://www.youtube.com/watch?v=uW4bgJWe-G0
+
+[^1_29]: https://www.linkedin.com/pulse/unveiling-magic-ghost-mannequin-effect-product-daxton-butler-5d66c
+
+[^1_30]: https://console.cloud.google.com/vertex-ai/publishers/google/model-garden/imagen-product-recontext-preview-06-30
+
+[^1_31]: https://petapixel.com/2025/04/11/google-adds-cinematic-controls-outpainting-and-inpainting-to-ai-video-model-veo-2/
+
+[^1_32]: https://thenewblack.ai/ai-design-features/ghost-mannequin-clothing-from-an-image-with-ai
+
+[^1_33]: https://www.reddit.com/r/StableDiffusion/comments/16riym4/clothing_image_to_ghost_mannequin/
+
+[^1_34]: https://console.cloud.google.com/vertex-ai/publishers/google/model-garden/imagen-3.0-capability-002
+
+[^1_35]: https://www.pixelz.com/invisible-ghost-mannequin-service/
+
+[^1_36]: https://photostudio.io/blog/ghost-mannequin-photography-guide
+
+[^1_37]: https://firebase.google.com/docs/ai-logic/edit-images-imagen-overview
+
+[^1_38]: https://blog.google/products/google-cloud/cloud-next-gen-ai-vertex-ai-updates/
+
+[^1_39]: https://console.cloud.google.com/vertex-ai/publishers/google/model-garden/imagegeneration?hl=ko
+
+
+---
+
+# Co możesz wykorzystać z repozytorium Vertex AI Creative Studio
+
+W Twoim przypadku (2-3 zdjęcia ubrania bez tła, z potencjalnie brakującymi elementami jak wnętrze czy kołnierz) repozytorium oferuje kilka istotnych rozwiązań:
+
+## Imagen Product Recontextualization - najlepsze dopasowanie
+
+To narzędzie znajduje się w folderze **experiments** i jest idealnie zaprojektowane dla Twojego przypadku użycia. API **imagen-product-recontext-preview-06-30** akceptuje **od 1 do 3 zdjęć tego samego produktu** z różnych kątów, co dokładnie pasuje do Twojej sytuacji.[^2_1][^2_2][^2_3]
+
+### Kluczowe możliwości
+
+API obsługuje kategorię **"Clothing"** (ubrania) i może:[^2_2]
+
+- Przetwarzać wiele perspektyw tego samego ubrania jednocześnie
+- Generować obrazy produktu w nowych scenach i z nowymi tłami
+- Wypełniać brakujące elementy na podstawie kontekstu z wielu zdjęć
+- Tworzyć profesjonalne ujęcia produktowe z efektem ghost mannequin
+
+
+### Implementacja z repozytorium
+
+Struktura żądania API (dostępna w kodzie repozytorium):
+
+```python
+{
+  "instances": [{
+    "prompt": "professional ghost mannequin shot, clean white background",
+    "productImages": [
+      {
+        "image": {
+          "bytesBase64Encoded": "base64_zdjecie_1"
+        }
+      },
+      {
+        "image": {
+          "bytesBase64Encoded": "base64_zdjecie_2"
+        }
+      },
+      {
+        "image": {
+          "bytesBase64Encoded": "base64_zdjecie_3"
+        }
+      }
+    ]
+  }],
+  "parameters": {
+    "sampleCount": 4,
+    "enhancePrompt": true,
+    "addWatermark": false
+  }
+}
+```
+
+
+## Dodatkowe narzędzia z repozytorium
+
+### Imagen Inpainting (uzupełnianie brakujących części)
+
+W kodzie repozytorium znajdziesz przykłady użycia **inpaintingu** do wypełnienia brakujących obszarów:[^2_4]
+
+```python
+import vertexai
+from vertexai.preview.vision_models import Image, ImageGenerationModel
+
+vertexai.init(project=PROJECT_ID, location="us-central1")
+model = ImageGenerationModel.from_pretrained("imagegeneration@006")
+
+base_img = Image.load_from_file(location="twoje_ubranie.png")
+mask_img = Image.load_from_file(location="maska_brakujacych_czesci.png")
+
+images = model.edit_image(
+    base_image=base_img,
+    mask=mask_img,
+    prompt="fill in missing collar and interior details",
+    edit_mode="inpainting",
+    guidance_scale=21
+)
+```
+
+
+### Workflowy do automatyzacji
+
+Repozytorium zawiera folder **genai-workflows** z przykładami automatyzacji procesów. Możesz wykorzystać workflow **Creative GenMedia Workflow**, który pokazuje jak połączyć wiele kroków przetwarzania obrazu w jeden pipeline.[^2_1]
+
+## Jak rozpocząć pracę
+
+### Instalacja środowiska
+
+```bash
+git clone https://github.com/GoogleCloudPlatform/vertex-ai-creative-studio.git
+cd vertex-ai-creative-studio
+uv sync
+```
+
+
+### Konfiguracja (plik .env)
+
+```
+PROJECT_ID=twoj-projekt-gcp
+REGION=us-central1
+```
+
+
+### Uruchomienie aplikacji
+
+```bash
+uv run main.py
+```
+
+
+## Dostęp do Product Recontextualization
+
+**Ważne:** Funkcja Product Recontextualization wymaga wypełnienia formularza dostępu: **"Vertex AI - Generative Media for Marketing Access Request"**. Bez tego dostępu będziesz mieć błąd 403/404.[^2_3][^2_2]
+
+## Eksperymenty do przetestowania
+
+W folderze **experiments/** znajdują się notebooki demonstracyjne:[^2_1]
+
+- **Virtual Try-On** - może być przydatny do wizualizacji końcowego efektu
+- **Product Recontextualization notebook** - zawiera gotowe przykłady kodu
+- **Arena** - do porównywania wyników z różnych modeli
+
+
+## Alternatywne podejście bez dostępu do Product Recontext
+
+Jeśli nie masz jeszcze dostępu do Product Recontextualization, możesz użyć kombinacji narzędzi dostępnych w repozytorium:
+
+1. **Inpainting** - wypełnij brakujące części (kołnierz, wnętrze)[^2_5][^2_4]
+2. **Background replacement** - zamień tło na czyste[^2_6]
+3. **Outpainting** - rozszerz obraz jeśli potrzeba więcej przestrzeni[^2_7]
+
+Te funkcje są dostępne przez modele **imagegeneration@006** lub **imagen-3.0-capability-001** bez dodatkowego dostępu.[^2_8]
+<span style="display:none">[^2_10][^2_11][^2_12][^2_13][^2_14][^2_15][^2_16][^2_17][^2_18][^2_19][^2_20][^2_21][^2_22][^2_23][^2_24][^2_25][^2_26][^2_27][^2_28][^2_29][^2_9]</span>
+
+<div align="center">⁂</div>
+
+[^2_1]: https://github.com/GoogleCloudPlatform/vertex-ai-creative-studio
+
+[^2_2]: https://cloud.google.com/vertex-ai/generative-ai/docs/image/recontextualize-product-images
+
+[^2_3]: https://cloud.google.com/vertex-ai/generative-ai/docs/model-reference/imagen-product-recontext-api?hl=pt
+
+[^2_4]: https://cloud.google.com/vertex-ai/generative-ai/docs/samples/generativeaionvertexai-imagen-edit-image-mask
+
+[^2_5]: https://docs.cloud.google.com/vertex-ai/generative-ai/docs/image/edit-remove-objects
+
+[^2_6]: https://docs.cloud.google.com/vertex-ai/generative-ai/docs/image/replace-image-background
+
+[^2_7]: https://cloud.google.com/vertex-ai/generative-ai/docs/image/edit-outpainting
+
+[^2_8]: https://cloud.google.com/vertex-ai/generative-ai/docs/image/overview
+
+[^2_9]: https://github.com/GoogleCloudPlatform/vertex-ai-creative-studio/issues/232
+
+[^2_10]: https://cloud.google.com/vertex-ai/generative-ai/docs/samples
+
+[^2_11]: https://docs.cloud.google.com/vertex-ai/generative-ai/docs/models
+
+[^2_12]: https://docs.cloud.google.com/vertex-ai/generative-ai/docs/migrate/openai/examples
+
+[^2_13]: https://console.cloud.google.com/vertex-ai/publishers/google/model-garden/imagen-product-recontext-preview-06-30
+
+[^2_14]: https://github.com/ManojRamani/gcp-vertex-ai-samples
+
+[^2_15]: https://colab.research.google.com/github/GoogleCloudPlatform/vertex-ai-samples/blob/main/notebooks/community/gapic/custom/showcase_custom_image_classification_online_explain_example_based_api.ipynb
+
+[^2_16]: https://www.cloudskillsboost.google/paths/17/course_templates/12/video/512790
+
+[^2_17]: https://github.com/GoogleCloudPlatform/generative-ai?search=1
+
+[^2_18]: http://github.com/GoogleCloudPlatform/python-docs-samples/pull/13291
+
+[^2_19]: https://github.com/GoogleCloudPlatform/generative-ai/actions/runs/10168005771
+
+[^2_20]: https://firebase.google.com/docs/ai-logic/edit-images-imagen-remove-objects
+
+[^2_21]: https://docs.cloud.google.com/vertex-ai/generative-ai/docs/image/edit-images-overview
+
+[^2_22]: https://github.com/topics/google-generative-ai?l=python
+
+[^2_23]: https://cloud.google.com/vertex-ai/generative-ai/docs/samples/generativeaionvertexai-imagen-edit-image-inpainting-remove-mask
+
+[^2_24]: https://cloud.google.com/vertex-ai/generative-ai/docs/samples/generativeaionvertexai-imagen-edit-image-mask-free
+
+[^2_25]: https://github.com/GoogleCloudPlatform/generative-ai/blob/main/gemini/use-cases/code/code_retrieval_augmented_generation.ipynb
+
+[^2_26]: https://cloud.google.com/docs/generative-ai/code-samples
+
+[^2_27]: https://developers.googleblog.com/en/introducing-gemini-2-5-flash-image/
+
+[^2_28]: https://stackoverflow.com/questions/78721650/how-to-correctly-generate-background-images-with-vertex-ai-and-masking
+
+[^2_29]: https://pypi.org/project/google-generativeai/
+
+
+---
+
+# Modele Open Source do Ghost Mannequin na Hugging Face
+
+Znalazłem kilka dedykowanych modeli open source, które idealnie pasują do Twojego przypadku użycia:
+
+## TryOffDiff - najlepsze dopasowanie ⭐
+
+**TryOffDiff** to model specjalnie zaprojektowany do zadania odwrotnego do virtual try-on - ekstrahuje **standardowy obraz ubrania z fotografii osoby**. To dokładnie odpowiada koncepcji ghost mannequin.[^3_1][^3_2]
+
+### Kluczowe możliwości
+
+- Generuje kanoniczny obraz ubrania z pojedynczego zdjęcia osoby w ubraniu[^3_1]
+- Zachowuje teksturę, kształt i wzory tkaniny w wysokiej rozdzielczości[^3_2]
+- Obsługuje wiele kategorii: **upper-body, lower-body, dress**[^3_3][^3_4]
+- Wersja v2 wspiera **multi-garment** - może ekstrahować wiele elementów garderoby jednocześnie[^3_4][^3_5]
+
+
+### Dostęp do modelu
+
+```python
+# Model: rizavelioglu/tryoffdiff
+# Demo Space: https://huggingface.co/spaces/rizavelioglu/tryoffdiff
+# GitHub: https://rizavelioglu.github.io/tryoffdiff/
+```
+
+
+### Technologia
+
+Oparte na **Stable Diffusion** z kondycjonowaniem **SigLIP** do zachowania wysokiej szczegółowości ubrania. Model wykorzystuje DISTS metric do ewaluacji jakości rekonstrukcji.[^3_2][^3_1]
+
+## OOTDiffusion - Virtual Try-On (komplementarne rozwiązanie)
+
+**OOTDiffusion** działa w odwrotnym kierunku - nakłada ubranie na model, ale może być użyty w pipeline razem z TryOffDiff.[^3_6][^3_7]
+
+### Możliwości
+
+- Generuje fotorealistyczne zdjęcia modelu w wybranym ubraniu[^3_6]
+- Zachowuje wszystkie detale ubrania bez explicit warping[^3_6]
+- Obsługuje **upper-body/lower-body/dresses**[^3_7]
+- Checkpointy dla VITON-HD (half-body) i Dress Code (full-body)[^3_7]
+
+
+### Dostęp
+
+```python
+# Model: levihsu/OOTDiffusion
+# Space: https://huggingface.co/spaces/levihsu/OOTDiffusion
+# GitHub: https://github.com/levihsu/OOTDiffusion
+```
+
+
+## Kolors Virtual Try-On
+
+**Kolors Virtual Try-On** od Kwai to kolejny popularny model (9.81k użytkowników).[^3_8][^3_9]
+
+```python
+# Space: https://huggingface.co/spaces/Kwai-Kolors/Kolors-Virtual-Try-On
+```
+
+
+## Modele pomocnicze do pipeline
+
+### Segmentacja i usuwanie tła
+
+**mattmdjaga/segformer_b2_clothes** - segmentacja ubrań z 18 klasami:[^3_10]
+
+```python
+from transformers import SegformerImageProcessor, AutoModelForSemanticSegmentation
+
+processor = SegformerImageProcessor.from_pretrained("mattmdjaga/segformer_b2_clothes")
+model = AutoModelForSemanticSegmentation.from_pretrained("mattmdjaga/segformer_b2_clothes")
+
+# Klasy: Background, Hat, Hair, Upper-clothes, Skirt, Pants, Dress, Belt, etc.
+```
+
+**Trendyol/background-removal** - profesjonalny model do usuwania tła z fashion photography:[^3_11]
+
+```python
+# Model: Trendyol/background-removal
+# Architektura: IS-Net
+# Zoptymalizowany dla e-commerce fashion images
+```
+
+
+### Inpainting ogólny
+
+**Stable Diffusion 2 Inpainting** - do wypełniania brakujących części ubrania:[^3_12]
+
+```python
+# Model: stabilityai/stable-diffusion-2-inpainting
+# Używa strategii mask-generation z LAMA
+```
+
+
+## Rekomendowany pipeline dla Twojego przypadku
+
+Dla 2-3 zdjęć ubrania bez tła z brakującymi elementami:
+
+### Podejście 1: TryOffDiff jako baza
+
+```python
+# 1. Jeśli masz zdjęcia bez tła (transparentne PNG)
+# Możesz użyć TryOffDiff bezpośrednio
+# Model: rizavelioglu/tryoffdiff
+
+# 2. Wypełnij brakujące części używając Stable Diffusion Inpainting
+# Model: stabilityai/stable-diffusion-2-inpainting
+
+# 3. Opcjonalnie: użyj segmentacji do precyzyjnej maski
+# Model: mattmdjaga/segformer_b2_clothes
+```
+
+
+### Podejście 2: Kompletny workflow
+
+```python
+# Pipeline:
+# [Twoje zdjęcia] 
+#   → Background Removal (Trendyol/background-removal)
+#   → Garment Extraction (TryOffDiff)
+#   → Inpainting brakujących części (SD 2 Inpainting)
+#   → Final ghost mannequin image
+```
+
+
+## Dodatkowe modele warte uwagi
+
+- **OutfitAnyone** - virtual try-on z wysoką jakością[^3_13]
+- **Leffa** - generowanie z virtual try-on i pose transfer[^3_13]
+- **FitDiT** - high-fidelity virtual try-on[^3_13]
+- **ControlEdit** - multimodal clothing image editing[^3_14]
+
+
+## Porównanie z Vertex AI
+
+W przeciwieństwie do Vertex AI Product Recontextualization (który wymaga wypełnienia formularza dostępu), wszystkie te modele są **open source i dostępne natychmiast**. Możesz je uruchomić lokalnie lub używać przez Spaces na Hugging Face.[^3_15][^3_16][^3_3][^3_1][^3_7][^3_6]
+
+## Instalacja i użycie
+
+Większość modeli można przetestować przez **Spaces** (interfejs webowy) lub zainstalować lokalnie poprzez ich repozytoria GitHub. TryOffDiff oferuje gotowe demo bez potrzeby konfiguracji.[^3_3][^3_1][^3_7][^3_6]
+<span style="display:none">[^3_17][^3_18][^3_19][^3_20][^3_21][^3_22][^3_23][^3_24][^3_25][^3_26][^3_27][^3_28][^3_29][^3_30][^3_31][^3_32][^3_33][^3_34][^3_35][^3_36][^3_37][^3_38][^3_39][^3_40][^3_41][^3_42][^3_43][^3_44][^3_45][^3_46][^3_47][^3_48][^3_49][^3_50][^3_51][^3_52][^3_53][^3_54][^3_55][^3_56][^3_57][^3_58]</span>
+
+<div align="center">⁂</div>
+
+[^3_1]: https://huggingface.co/papers/2411.18350
+
+[^3_2]: https://huggingface.co/papers/2504.13078
+
+[^3_3]: https://huggingface.co/spaces/rizavelioglu/tryoffdiff
+
+[^3_4]: https://huggingface.co/rizavelioglu
+
+[^3_5]: https://huggingface.co/rizavelioglu/activity/posts
+
+[^3_6]: https://huggingface.co/papers/2403.01779
+
+[^3_7]: https://huggingface.co/levihsu/OOTDiffusion
+
+[^3_8]: https://huggingface.co/collections/SHRJK/kwai-kolors-kolors-virtual-try-on-6709460735918e99fe197383
+
+[^3_9]: https://huggingface.co/Kwai-Kolors
+
+[^3_10]: https://huggingface.co/mattmdjaga/segformer_b2_clothes
+
+[^3_11]: https://huggingface.co/Trendyol/background-removal
+
+[^3_12]: https://huggingface.co/stabilityai/stable-diffusion-2-inpainting/blob/refs%2Fpr%2F23/README.md creation of a collection of chic and elegant tradimodern African clothing
+
+[^3_13]: https://huggingface.co/collections/RogerZhuo/virtual-try-on-67c2dd6a407181f1f55d58fc
+
+[^3_14]: https://huggingface.co/papers/2409.14720
+
+[^3_15]: https://huggingface.co/spaces/levihsu/OOTDiffusion
+
+[^3_16]: https://cloud.google.com/vertex-ai/generative-ai/docs/image/recontextualize-product-images
+
+[^3_17]: https://discuss.huggingface.co/t/they-should-create-an-invisibility-edit-for-photos-with-ai/40858
+
+[^3_18]: https://huggingface.co/datasets/BAAI/DenseFusion-1M
+
+[^3_19]: https://huggingface.co/papers?q=hybrid+appearance+model
+
+[^3_20]: https://huggingface.co/DavidAU/Qwen3-33B-A3B-Stranger-Thoughts-GGUF
+
+[^3_21]: https://huggingface.co/datasets/syCen/CameraBench/resolve/main/test.jsonl?download=true
+
+[^3_22]: https://huggingface.co/blog/tonyassi/virtual-try-on-ip-adapter
+
+[^3_23]: https://huggingface.co/spaces?q=try-on
+
+[^3_24]: https://huggingface.co/datasets/BAAI/CapsFusion-120M
+
+[^3_25]: https://huggingface.co/spaces/InstantX/Qwen-Image-ControlNet-Inpainting/blob/47d04a517b8680015f4d829d1575a80815efcaa0/app.py
+
+[^3_26]: https://huggingface.co/datasets/TIGER-Lab/Mantis-Instruct/viewer/contrastive_caption
+
+[^3_27]: https://huggingface.co/papers?q=garment-centric+outpainting
+
+[^3_28]: https://huggingface.co/spaces/NXN-Labs/Voost
+
+[^3_29]: https://huggingface.co/datasets/SimpleStories/SimpleStories
+
+[^3_30]: https://huggingface.co/spaces/astriaai/virtual-try-on
+
+[^3_31]: https://huggingface.co/datasets/avduarte333/BookTection
+
+[^3_32]: https://huggingface.co/papers/2412.16978
+
+[^3_33]: https://huggingface.co/spaces/Kwai-Kolors/Kolors-Virtual-Try-On
+
+[^3_34]: https://huggingface.co/furio19/fashion-rag
+
+[^3_35]: https://huggingface.co/spaces/Nymbo/tryoffdiff/blame/c3e02d68c18be4cb788c87643d45784c064727e8/README.md
+
+[^3_36]: https://huggingface.co/posts/rizavelioglu/384782574190342
+
+[^3_37]: https://huggingface.co/spaces/levihsu/OOTDiffusion/blob/main/run/gradio_ootd.py
+
+[^3_38]: https://huggingface.co/spaces/pbhat99/Kolors-Virtual-Try-On
+
+[^3_39]: https://huggingface.co/rizavelioglu/tryoffdiff/commit/6127e61bcb7191768338fcbf040d6465303a89e9
+
+[^3_40]: https://huggingface.co/OOTDiffusion/OOTDiffusion
+
+[^3_41]: https://huggingface.co/collections/kdcyberdude/oh-675b4303f4a4a15adf352626
+
+[^3_42]: https://huggingface.co/spaces/vorstcavry/Cloth
+
+[^3_43]: https://huggingface.co/kdcyberdude
+
+[^3_44]: https://huggingface.co/papers?q=3D+clothing+segmentation
+
+[^3_45]: https://huggingface.co/papers?q=garment+texture+preservation
+
+[^3_46]: https://huggingface.co/papers?q=DressingNet
+
+[^3_47]: https://huggingface.co/papers?q=DressCode+datasets
+
+[^3_48]: https://huggingface.co/papers?q=garment+try-on
+
+[^3_49]: https://huggingface.co/Trendyol/background-removal/blame/main/README.md
+
+[^3_50]: https://huggingface.co/papers?q=Cross-modal+garment+synthesis
+
+[^3_51]: https://huggingface.co/starsfriday/Qwen-Image-Edit-Remove-Clothes
+
+[^3_52]: https://huggingface.co/papers?q=garment+condition
+
+[^3_53]: https://huggingface.co/spaces/ByteDance/DreamO
+
+[^3_54]: https://huggingface.co/papers?q=depth-aware+inpainting
+
+[^3_55]: https://huggingface.co/papers?q=garment+placement
+
+[^3_56]: https://huggingface.co/Trendyol/background-removal/commit/bf6eec3b1f8e6e0a211709e84faf3cb27ba5c897
+
+[^3_57]: https://huggingface.co/papers?q=generative+inpainting
+
+[^3_58]: https://huggingface.co/papers?q=garment+augmentation
+
+
+---
+
+# Tak, ale z ważnymi zastrzeżeniami
+
+Modele virtual try-on **mają zdolność generowania brakujących części**, ale działanie tego mechanizmu zależy od architektury modelu i zastosowanego podejścia.
+
+## Jak modele generują brakujące części
+
+### Try-On Module z funkcją generowania
+
+Modele virtual try-on zawierają dedykowany moduł do **"generating the missing body parts"** (generowania brakujących części ciała). Ten mechanizm działa dwukierunkowo:[^4_1]
+
+**Warping Module** (moduł wypaczania) - dopasowuje ubranie do sylwetki[^4_2][^4_1]
+
+**Try-On Module** (moduł nakładania) - "refines the warped attire and generates the missing parts of the image" (rafinuje wypaczone ubranie i generuje brakujące części obrazu)[^4_1]
+
+### Hallucination kontrolowana przez segmentację
+
+Modele wykorzystują **"hallucination"** do uzupełniania szczegółów:[^4_3][^4_4]
+
+```
+"This module uses clothing segmentation to control high-level 
+structure and shape and clothing embedding to guide hallucination 
+of low-level color and details"
+```
+
+Oznacza to, że model **odgaduje** (hallucinates) brakujące elementy na podstawie kontekstu.[^4_4][^4_3]
+
+## Ograniczenia dla efektu ghost mannequin
+
+### Problem z niewidzialnym modelem
+
+Modele virtual try-on są **trenowane na obrazach ludzi**, nie na niewidzialnych manekineach. Jeśli użyjesz całkowicie przezroczystego/niewidzialnego modelu:[^4_5][^4_3]
+
+- Model nie będzie miał odniesienia do **kształtu ciała/pozy**[^4_5][^4_2]
+- **Implicit warping** (niejawne wypaczanie) wymaga informacji o sylwetce osoby[^4_2]
+- Brak "body shape" = nieprzewidywalne rezultaty[^4_6]
+
+
+### Co modele potrafią rekonstruować
+
+**Mogą wypełnić:**
+
+- Brakujące fałdy materiału[^4_7]
+- Części ciała zakryte przez ubranie[^4_8][^4_1]
+- Drobne artefakty i nieciągłości[^4_3]
+
+**Mają trudności z:**
+
+- Całkowicie brakującym wnętrzem ubrania (np. wewnętrzna wyściółka kurtki)[^4_6]
+- Kompleksowymi wzorami i napisami (mogą je przekształcić)[^4_7]
+- Zachowaniem dokładnych kolorów[^4_7]
+
+
+## Lepsze podejście: Połączenie modeli
+
+### Workflow dla Twojego przypadku
+
+Zamiast używać niewidzialnego modelu, możesz zastosować **two-stage approach**:
+
+**Stage 1: Virtual Try-On na neutralnym modelu**
+
+```python
+# Użyj OOTDiffusion lub Kolors Virtual Try-On
+# Nałóż ubranie na standardowy model/manekina
+# Model automatycznie wygeneruje brakujące części
+# opartę na kontekście (np. wnętrze kurtki jeśli jest widoczne)
+```
+
+**Stage 2: Background removal + ghost effect**
+
+```python
+# Użyj Trendyol/background-removal lub mattmdjaga/segformer_b2_clothes
+# Usuń model, pozostaw tylko ubranie
+# Rezultat: ghost mannequin effect z kompletnym ubraniem
+```
+
+
+## Przykład z dokumentacji
+
+Amazon Outfit-VITON pokazuje, że model **"can synthesize images of multiple garments composed into a single, coherent outfit"** i **"enables us to fill-in missing garments and body parts"**. To potwierdza, że:[^4_3]
+
+- Model może generować brakujące elementy ubrania
+- **Ale wymaga kontekstu** (innych części ubrania lub sylwetki)
+- Nie działa "w próżni" bez żadnego punktu odniesienia[^4_3]
+
+
+## Praktyczne zalecenie
+
+Dla najlepszych rezultatów z ghost mannequin:
+
+### Opcja A: Użyj fizycznego ghost mannequin
+
+Zrób zdjęcie na modularnym manekinie ghost, a następnie użyj inpainting do wypełnienia brakujących części.[^4_9][^4_10]
+
+### Opcja B: Virtual try-on + background removal pipeline
+
+```python
+1. Użyj virtual try-on na neutralnym modelu (wygeneruje brakujące części)
+2. Segmentuj ubranie (mattmdjaga/segformer_b2_clothes)
+3. Usuń tło i model (Trendyol/background-removal)
+4. Opcjonalnie: inpainting dla perfekcji (Stable Diffusion)
+```
+
+
+### Opcja C: TryOffDiff bezpośrednio
+
+Jeśli masz zdjęcie osoby W ubraniu, użyj **TryOffDiff** - już wytrenowany do ekstrahowania standardowego obrazu ubrania z fotografii.[^4_11][^4_12]
+
+## Podsumowanie
+
+Model virtual try-on **może** generować brakujące elementy jak wnętrze kurtki, **ale tylko gdy ma kontekst** - sylwetkę osoby lub manekina jako podstawę. Niewidzialny model bez żadnego kształtu nie da modelowi wystarczająco dużo informacji do prawidłowego wygenerowania brakujących części.[^4_13][^4_1][^4_5][^4_2]
+<span style="display:none">[^4_14][^4_15][^4_16][^4_17][^4_18][^4_19][^4_20][^4_21][^4_22][^4_23][^4_24][^4_25][^4_26][^4_27][^4_28][^4_29][^4_30][^4_31][^4_32][^4_33][^4_34][^4_35][^4_36][^4_37][^4_38][^4_39]</span>
+
+<div align="center">⁂</div>
+
+[^4_1]: https://arxiv.org/html/2403.07371v2
+
+[^4_2]: https://www.segmind.com/models/try-on-diffusion
+
+[^4_3]: https://openaccess.thecvf.com/content_CVPR_2020/papers/Neuberger_Image_Based_Virtual_Try-On_Network_From_Unpaired_Data_CVPR_2020_paper.pdf
+
+[^4_4]: https://scholarworks.sjsu.edu/cgi/viewcontent.cgi?article=2612\&context=faculty_rsca
+
+[^4_5]: https://arxiv.org/html/2403.01779v1
+
+[^4_6]: http://cs230.stanford.edu/projects_fall_2021/reports/103136976.pdf
+
+[^4_7]: https://academic.oup.com/jcde/article/10/5/1958/7269213
+
+[^4_8]: https://www.sciencedirect.com/science/article/pii/S0925231224006581
+
+[^4_9]: https://www.profoto.com/gb/en/studio-solutions/blog/5-tips-on-photographing-your-clothes-using-a-ghost-mannequin/
+
+[^4_10]: https://orbitvu.com/blog/mastering-ghost-mannequin-photography-comprehensive-guide-e-commerce-success/
+
+[^4_11]: https://arxiv.org/html/2411.18350v1
+
+[^4_12]: https://huggingface.co/papers/2411.18350
+
+[^4_13]: https://www.nature.com/articles/s41598-021-99406-6
+
+[^4_14]: https://thenewblack.ai/ai-virtual-try-on-clothes
+
+[^4_15]: https://arxiv.org/abs/2403.07371
+
+[^4_16]: https://fashn.ai/virtual-try-on
+
+[^4_17]: https://arxiv.org/abs/2310.17131
+
+[^4_18]: https://www.nature.com/articles/s41598-025-18107-6
+
+[^4_19]: https://arxiv.org/html/2506.21270v1
+
+[^4_20]: https://miragic.ai/products/virtual-try-on
+
+[^4_21]: https://dl.acm.org/doi/10.1145/3721238.3730651
+
+[^4_22]: https://botika.io/thethread/challenges-in-training-ai-for-fashion-realism-vs-hallucinations
+
+[^4_23]: https://github.com/rizavelioglu/awesome-virtual-try-off
+
+[^4_24]: https://proceedings.iclr.cc/paper_files/paper/2025/file/697200c9d1710c2799720b660abd11bb-Paper-Conference.pdf
+
+[^4_25]: https://www.reddit.com/r/TwoXIndia/comments/1ks2kej/this_new_google_tryon_feature_is_actually/
+
+[^4_26]: https://www.ecva.net/papers/eccv_2024/papers_ECCV/papers/11626.pdf
+
+[^4_27]: https://www.reddit.com/r/fooocus/comments/1iczfmb/ghost_mannequin_photography/
+
+[^4_28]: https://www.youtube.com/watch?v=p-YpsLSaYas
+
+[^4_29]: https://help.photoroom.com/en/articles/12353253-show-clothing-on-an-invisible-ghost-mannequin
+
+[^4_30]: https://www.photorobot.com/ghost-mannequins
+
+[^4_31]: https://www.piccopilot.com/tools/tryon
+
+[^4_32]: https://github.com/levihsu/OOTDiffusion
+
+[^4_33]: https://aitryon.art
+
+[^4_34]: https://arxiv.org/html/2506.12348v2
+
+[^4_35]: https://thenewblack.ai/ai-design-features/ghost-mannequin-clothing-from-an-image-with-ai
+
+[^4_36]: https://app.klingai.com/global/try-on/try-on/new
+
+[^4_37]: https://pmc.ncbi.nlm.nih.gov/articles/PMC8908950/
+
+[^4_38]: https://marszalstudio.pl/en/ghost-mannequin-photography/
+
+[^4_39]: https://www.pixelz.com/blog/invisible-ghost-mannequin-photography/
+
