@@ -34,6 +34,7 @@ from components.media_detail_viewer.media_detail_viewer import media_detail_view
 from components.media_tile.media_tile import get_pills_for_item, media_tile
 from components.page_scaffold import page_frame, page_scaffold
 from components.scroll_sentinel.scroll_sentinel import scroll_sentinel
+from components.veo.extend_dialog import extend_dialog, VeoExtendDialogState
 from config.default import Default as cfg
 from state.state import AppState
 
@@ -56,6 +57,7 @@ class PageState:
     )  # "all", "images", "videos", "audio"
     error_filter: str = "all"  # "all", "no_errors", "only_errors"
     tour_dialog_active_tab: str = "details"
+    extend_dialog_state: VeoExtendDialogState = field(default_factory=VeoExtendDialogState)
 
 
 def on_load(e: me.LoadEvent):
@@ -257,6 +259,7 @@ def library_content():
         )
 
         library_dialog(pagestate)
+        extend_dialog(pagestate.extend_dialog_state, on_close=on_close_extend_dialog)
 
 
 def on_media_item_click(e: me.ClickEvent):
@@ -264,6 +267,36 @@ def on_media_item_click(e: me.ClickEvent):
     pagestate = me.state(PageState)
     pagestate.selected_media_item_id = e.key
     pagestate.show_details_dialog = True
+    yield
+
+
+def on_extend_click(e: me.WebEvent):
+    """Handles 'Extend' click from media viewer."""
+    state = me.state(PageState)
+    proxy_url = e.value["url"]
+    print(f"DEBUG: on_extend_click triggered. Proxy URL: {proxy_url}")
+    if proxy_url:
+        # Use common utility to handle various URL formats
+        gcs_path = https_url_to_gcs_uri(proxy_url)
+        print(f"DEBUG: Extracted GCS Path: {gcs_path}")
+        
+        # Open the extend dialog
+        state.extend_dialog_state.is_open = True
+        state.extend_dialog_state.input_video_uri = gcs_path
+        print(f"DEBUG: Set extend_dialog_state.is_open = {state.extend_dialog_state.is_open}")
+        print(f"DEBUG: Set extend_dialog_state.input_video_uri = {state.extend_dialog_state.input_video_uri}")
+    yield
+
+
+def on_close_extend_dialog(e: me.ClickEvent):
+    """Closes the extend dialog and resets state."""
+    state = me.state(PageState)
+    # Check if we should refresh the library (if generation succeeded)
+    if state.extend_dialog_state.generated_video_uri:
+        yield from _load_media(state, is_filter_change=True)
+    
+    # Reset dialog state
+    state.extend_dialog_state = VeoExtendDialogState() 
     yield
 
 
@@ -507,19 +540,6 @@ def render_default_detail_dialog(item: MediaItem):
     elif item.gcsuri:
         primary_urls = [create_display_url(item.gcsuri)]
 
-    # Consolidate all potential source assets into a single list for backward compatibility
-    all_source_uris = []
-    if item.source_uris:
-        all_source_uris.extend(item.source_uris)
-    if item.source_images_gcs:
-        all_source_uris.extend(item.source_images_gcs)
-    if item.r2v_reference_images:
-        all_source_uris.extend(item.r2v_reference_images)
-    if item.r2v_style_image:
-        all_source_uris.append(item.r2v_style_image)
-    if item.reference_image:
-        all_source_uris.append(item.reference_image)
-
     # Handle case where timestamp might be a string from Firestore
     timestamp_display = "N/A"
     if isinstance(item.timestamp, datetime.datetime):
@@ -561,6 +581,7 @@ def render_default_detail_dialog(item: MediaItem):
         ),
         on_edit_click=handle_edit_click,
         on_veo_click=on_veo_click,
+        on_extend_click=on_extend_click,
     )
 
     # Add a button to link back to the object rotation page if applicable
@@ -573,39 +594,91 @@ def render_default_detail_dialog(item: MediaItem):
                 type="stroked",
             )
 
-    # New section to render source assets using media_tile
-    if all_source_uris:
-        with me.box(style=me.Style(margin=me.Margin(top=24))):
-            me.text("Source Assets", type="headline-6")
-            with me.box(
-                style=me.Style(
-                    display="grid",
-                    grid_template_columns="repeat(auto-fill, minmax(200px, 1fr))",
-                    gap="16px",
-                    margin=me.Margin(top=16),
+    # --- Categorized Source Asset Sections ---
+
+    # R2V Style
+    if item.r2v_style_image:
+        _render_source_section("Style Reference", [item.r2v_style_image])
+
+    # R2V Assets
+    if item.r2v_reference_images:
+        _render_source_section("Asset References", item.r2v_reference_images)
+
+    # I2V / Interpolation Frames
+    i2v_frames = []
+    if item.reference_image:
+        i2v_frames.append(item.reference_image)
+    if item.last_reference_image:
+        i2v_frames.append(item.last_reference_image)
+    if i2v_frames:
+        # Use a more specific title if it's interpolation
+        title = (
+            "Interpolation Frames"
+            if item.last_reference_image
+            else "Source Frame"
+        )
+        _render_source_section(title, i2v_frames)
+
+    # Virtual Try-On
+    vto_assets = []
+    if item.person_image_gcs:
+        vto_assets.append(item.person_image_gcs)
+    if item.product_image_gcs:
+        vto_assets.append(item.product_image_gcs)
+    if vto_assets:
+        _render_source_section("Virtual Try-On Sources", vto_assets)
+
+    # Generic / Legacy Sources
+    generic_sources = []
+    if item.source_uris:
+        generic_sources.extend(item.source_uris)
+    if item.source_images_gcs:
+        generic_sources.extend(item.source_images_gcs)
+    if generic_sources:
+        _render_source_section("Source Assets", generic_sources)
+
+
+@me.component
+def _render_source_section(title: str, uris: List[str]):
+    """Helper to render a titled section of source asset tiles."""
+    if not uris:
+        return
+
+    with me.box(style=me.Style(margin=me.Margin(top=24))):
+        me.text(title, type="headline-6")
+        with me.box(
+            style=me.Style(
+                display="grid",
+                grid_template_columns="repeat(auto-fill, minmax(200px, 1fr))",
+                gap="16px",
+                margin=me.Margin(top=16),
+            )
+        ):
+            for source_uri in uris:
+                # Construct the display URL
+                https_url = create_display_url(source_uri)
+
+                # Determine media type from URL extension
+                render_type = "image"  # Default
+                if ".mp4" in https_url or ".webm" in https_url:
+                    render_type = "video"
+                elif ".wav" in https_url or ".mp3" in https_url:
+                    render_type = "audio"
+
+                # Create a dummy MediaItem for pill generation if needed,
+                # though for source assets pills might be overkill.
+                # We keep it for consistency with the previous implementation.
+                source_item = MediaItem(gcsuri=source_uri, media_type=render_type)
+
+                media_tile(
+                    key=source_uri,
+                    media_type=render_type,
+                    https_url=https_url,
+                    pills_json=get_pills_for_item(source_item, https_url),
+                    # Not clickable for now
+                    on_click=None,
                 )
-            ):
-                for source_uri in all_source_uris:
-                    # Construct the display URL
-                    https_url = create_display_url(source_uri)
 
-                    # Determine media type from URL extension
-                    render_type = "image"  # Default
-                    if ".mp4" in https_url or ".webm" in https_url:
-                        render_type = "video"
-                    elif ".wav" in https_url or ".mp3" in https_url:
-                        render_type = "audio"
-
-                    # Create a dummy MediaItem for pill generation
-                    source_item = MediaItem(gcsuri=source_uri, media_type=render_type)
-                    media_tile(
-                        key=source_uri,
-                        media_type=render_type,
-                        https_url=https_url,
-                        pills_json=get_pills_for_item(source_item, https_url),
-                        # Not clickable for now, but could be in the future
-                        on_click=None,
-                    )
 
 
 def on_continue_styling_click(e: me.ClickEvent):

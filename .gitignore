@@ -21,6 +21,7 @@ node_modules
 dist
 local/  
 recaps/
+plans/
 
 ### Terraform ###
 # Local .terraform directories
@@ -60,3 +61,4 @@ terraform.rc
 
 ## MCP Servers
 drivectl-mcp.log
+.genkit/

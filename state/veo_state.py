@@ -23,7 +23,7 @@ class PageState:
     
     # pylint: disable=E3701:invalid-field-call
 
-    veo_model: str = "2.0"
+    veo_model: str = "3.1-fast"
     veo_prompt_input: str = ""
     veo_prompt_placeholder: str = ""
     veo_prompt_textarea_key: int = 0
@@ -40,7 +40,7 @@ class PageState:
     video_count: int = 1
     aspect_ratio: str = "16:9"
     resolution: str = "720p"
-    video_length: int = 5  # 5-8
+    video_length: int = 8  # Default for 3.1-fast
 
     # I2V reference Image
     reference_image_file: me.UploadedFile = None
@@ -85,3 +85,7 @@ class PageState:
     timing: str
     
     person_generation: str = "Allow (All ages)"
+
+    # Async Job Tracking
+    current_job_id: str = ""
+    job_status: str = ""

@@ -1,5 +1,3 @@
-
-
 // Copyright 2025 Google LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -123,6 +121,69 @@ func BuildImagenModelDescription() string {
 	return sb.String()
 }
 
+// --- Gemini Image Model Configuration ---
+
+// GeminiImageModelInfo holds the details for a specific Gemini Image model.
+type GeminiImageModelInfo struct {
+	CanonicalName string
+	Aliases       []string
+	Description   string
+}
+
+// SupportedGeminiImageModels is the single source of truth for all supported Gemini Image models.
+var SupportedGeminiImageModels = map[string]GeminiImageModelInfo{
+	"gemini-3-pro-image-preview": {
+		CanonicalName: "gemini-3-pro-image-preview",
+		Aliases:       []string{"Nano Banana Pro", "Gemini 3 Pro Image"},
+		Description:   "Gemini 3 Pro Image, or Gemini 3 Pro (with Nano Banana), is designed to tackle the most challenging image generation by incorporating state-of-the-art reasoning capabilities. It's the best model for complex and multi-turn image generation and editing, having improved accuracy and enhanced image quality.",
+	},
+	"gemini-2.5-flash-image": {
+		CanonicalName: "gemini-2.5-flash-image",
+		Aliases:       []string{"Nano Banana", "nano-banana"},
+		Description:   "Gemini 2.5 Flash Image, or Nano Banana, is optimized for image understanding and generation and offers a balance of price and performance.",
+	},
+}
+
+var geminiImageAliasMap = make(map[string]string)
+
+func init() {
+	for canonicalName, info := range SupportedGeminiImageModels {
+		geminiImageAliasMap[strings.ToLower(canonicalName)] = canonicalName
+		for _, alias := range info.Aliases {
+			geminiImageAliasMap[strings.ToLower(alias)] = canonicalName
+		}
+	}
+}
+
+// ResolveGeminiImageModel finds the canonical model name from a user-provided name or alias.
+func ResolveGeminiImageModel(modelInput string) (string, bool) {
+	canonicalName, found := geminiImageAliasMap[strings.ToLower(modelInput)]
+	return canonicalName, found
+}
+
+// BuildGeminiImageModelDescription generates a formatted string for the tool description.
+func BuildGeminiImageModelDescription() string {
+	var sb strings.Builder
+	sb.WriteString("Model for image generation. Can be a full model ID or a common name. Supported models:\n")
+	var sortedNames []string
+	for name := range SupportedGeminiImageModels {
+		sortedNames = append(sortedNames, name)
+	}
+	sort.Strings(sortedNames)
+
+	for _, name := range sortedNames {
+		info := SupportedGeminiImageModels[name]
+		sb.WriteString(fmt.Sprintf("- *%s*", info.CanonicalName))
+		if len(info.Aliases) > 0 {
+			sb.WriteString(fmt.Sprintf(" Aliases: *%s*", strings.Join(info.Aliases, "*, *")))
+		}
+		if info.Description != "" {
+			sb.WriteString(fmt.Sprintf(" - %s", info.Description))
+		}
+		sb.WriteString("\n")
+	}
+	return sb.String()
+}
 
 // --- Veo Model Configuration ---
 
@@ -130,11 +191,11 @@ func BuildImagenModelDescription() string {
 type VeoModelInfo struct {
 	CanonicalName         string
 	Aliases               []string
-	MinDuration           int32
-	MaxDuration           int32
 	DefaultDuration       int32
+	SupportedDurations    []int32
 	MaxVideos             int32
 	SupportedAspectRatios []string
+	SupportsGenerateAudio bool
 }
 
 // SupportedVeoModels is the single source of truth for all supported Veo models.
@@ -142,29 +203,83 @@ var SupportedVeoModels = map[string]VeoModelInfo{
 	"veo-2.0-generate-001": {
 		CanonicalName:         "veo-2.0-generate-001",
 		Aliases:               []string{"Veo 2"},
-		MinDuration:           5,
-		MaxDuration:           8,
-		DefaultDuration:       5,
+		DefaultDuration:       8,
+		SupportedDurations:    []int32{5, 6, 7, 8},
 		MaxVideos:             4,
 		SupportedAspectRatios: []string{"16:9", "9:16"},
+		SupportsGenerateAudio: false,
+	},
+	"veo-2.0-generate-exp": {
+		CanonicalName:         "veo-2.0-generate-exp",
+		Aliases:               []string{"Veo 2.0 Exp"},
+		DefaultDuration:       8,
+		SupportedDurations:    []int32{5, 6, 7, 8},
+		MaxVideos:             4,
+		SupportedAspectRatios: []string{"16:9", "9:16"},
+		SupportsGenerateAudio: false,
+	},
+	"veo-2.0-generate-preview": {
+		CanonicalName:         "veo-2.0-generate-preview",
+		Aliases:               []string{"Veo 2.0 Preview"},
+		DefaultDuration:       8,
+		SupportedDurations:    []int32{5, 6, 7, 8},
+		MaxVideos:             4,
+		SupportedAspectRatios: []string{"16:9", "9:16"},
+		SupportsGenerateAudio: false,
+	},
+	"veo-3.0-generate-001": {
+		CanonicalName:         "veo-3.0-generate-001",
+		Aliases:               []string{"Veo 3.0"},
+		DefaultDuration:       8,
+		SupportedDurations:    []int32{4, 6, 8},
+		MaxVideos:             2,
+		SupportedAspectRatios: []string{"16:9"},
+		SupportsGenerateAudio: true,
+	},
+	"veo-3.0-fast-generate-001": {
+		CanonicalName:         "veo-3.0-fast-generate-001",
+		Aliases:               []string{"Veo 3.0 Fast"},
+		DefaultDuration:       8,
+		SupportedDurations:    []int32{4, 6, 8},
+		MaxVideos:             2,
+		SupportedAspectRatios: []string{"16:9"},
+		SupportsGenerateAudio: true,
 	},
 	"veo-3.0-generate-preview": {
 		CanonicalName:         "veo-3.0-generate-preview",
 		Aliases:               []string{"Veo 3"},
-		MinDuration:           8,
-		MaxDuration:           8,
 		DefaultDuration:       8,
+		SupportedDurations:    []int32{4, 6, 8},
 		MaxVideos:             2,
 		SupportedAspectRatios: []string{"16:9"},
+		SupportsGenerateAudio: true,
 	},
 	"veo-3.0-fast-generate-preview": {
 		CanonicalName:         "veo-3.0-fast-generate-preview",
 		Aliases:               []string{"Veo 3 Fast"},
-		MinDuration:           8,
-		MaxDuration:           8,
 		DefaultDuration:       8,
+		SupportedDurations:    []int32{4, 6, 8},
 		MaxVideos:             2,
 		SupportedAspectRatios: []string{"16:9"},
+		SupportsGenerateAudio: true,
+	},
+	"veo-3.1-generate-preview": {
+		CanonicalName:         "veo-3.1-generate-preview",
+		Aliases:               []string{"Veo 3.1"},
+		DefaultDuration:       8,
+		SupportedDurations:    []int32{4, 6, 8},
+		MaxVideos:             2,
+		SupportedAspectRatios: []string{"16:9", "9:16"},
+		SupportsGenerateAudio: true,
+	},
+	"veo-3.1-fast-generate-preview": {
+		CanonicalName:         "veo-3.1-fast-generate-preview",
+		Aliases:               []string{"Veo 3.1 Fast"},
+		DefaultDuration:       8,
+		SupportedDurations:    []int32{4, 6, 8},
+		MaxVideos:             2,
+		SupportedAspectRatios: []string{"16:9", "9:16"},
+		SupportsGenerateAudio: true,
 	},
 }
 
@@ -197,8 +312,12 @@ func BuildVeoModelDescription() string {
 
 	for _, name := range sortedNames {
 		info := SupportedVeoModels[name]
-		sb.WriteString(fmt.Sprintf("- *%s* (Duration: %d-%ds, Max Videos: %d, Ratios: %s)",
-			info.CanonicalName, info.MinDuration, info.MaxDuration, info.MaxVideos, strings.Join(info.SupportedAspectRatios, ", ")))
+		durationsStr := make([]string, len(info.SupportedDurations))
+		for i, d := range info.SupportedDurations {
+			durationsStr[i] = fmt.Sprintf("%d", d)
+		}
+		sb.WriteString(fmt.Sprintf("- *%s* (Durations: [%s]s, Max Videos: %d, Ratios: %s)",
+			info.CanonicalName, strings.Join(durationsStr, ", "), info.MaxVideos, strings.Join(info.SupportedAspectRatios, ", ")))
 		if len(info.Aliases) > 0 {
 			sb.WriteString(fmt.Sprintf(" Aliases: *%s*", strings.Join(info.Aliases, "*, *")))
 		}

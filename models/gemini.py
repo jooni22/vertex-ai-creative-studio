@@ -16,16 +16,13 @@
 import json
 import time
 import uuid
-from typing import Dict, Optional
+from pathlib import Path
+from typing import Dict, Optional, Any
 
 import requests
 from google.cloud.aiplatform import telemetry
 from google.genai import types
-from models.shop_the_look_models import (
-    GeneratedImageAccuracyWrapper,
-    CatalogRecord,
-    ArticleDescriptionWrapper,
-)
+from pydantic import BaseModel, Field
 from tenacity import (
     retry,
     retry_if_exception_type,
@@ -33,9 +30,11 @@ from tenacity import (
     wait_exponential,
 )
 
+from common.analytics import analytics_logger, track_model_call
 from common.error_handling import GenerationError
 from common.storage import store_to_gcs
 from config.default import Default  # Import Default for cfg
+from config.evaluators import GEMINI_TTS_EVALUATOR
 from config.rewriters import MAGAZINE_EDITOR_PROMPT, REWRITER_PROMPT
 from models.character_consistency_models import (
     BestImage,
@@ -46,9 +45,11 @@ from models.model_setup import (
     GeminiModelSetup,
 )
 from models.shop_the_look_models import (
+    ArticleDescriptionWrapper,
     BestImageAccuracy,
+    CatalogRecord,
+    GeneratedImageAccuracyWrapper,
 )
-from pydantic import BaseModel, Field
 
 
 class Transformation(BaseModel):
@@ -72,10 +73,16 @@ class TransformationPrompts(BaseModel):
 
 
 class Room(BaseModel):
-    room_name: str = Field(..., description="The name of a room identified in the floor plan, e.g., 'Living Room' or 'Bedroom 1'.")
+    room_name: str = Field(
+        ...,
+        description="The name of a room identified in the floor plan, e.g., 'Living Room' or 'Bedroom 1'.",
+    )
+
 
 class RoomList(BaseModel):
-    rooms: list[Room] = Field(..., description="A list of rooms identified in the floor plan.")
+    rooms: list[Room] = Field(
+        ..., description="A list of rooms identified in the floor plan."
+    )
 
 
 # Initialize client and default model ID for rewriter
@@ -91,7 +98,9 @@ def generate_image_from_prompt_and_images(
     gcs_folder: str = "generated_images",
     file_prefix: str = "image",
     candidate_count: int = 1,
-) -> tuple[list[str], float]:
+    image_size: Optional[str] = None,
+    use_search: bool = False,
+) -> tuple[list[str], float, list[str], Optional[Dict[str, Any]]]:
     """Generates images from a prompt and a list of images."""
     start_time = time.time()
     model_name = cfg.GEMINI_IMAGE_GEN_MODEL
@@ -102,55 +111,93 @@ def generate_image_from_prompt_and_images(
 
     contents = [types.Content(role="user", parts=parts)]
 
+    http_options = None
+    if cfg.GEMINI_IMAGE_GEN_API_BASE_URL:
+        http_options = {"base_url": cfg.GEMINI_IMAGE_GEN_API_BASE_URL}
+
     client = GeminiModelSetup.init(
         location=cfg.GEMINI_IMAGE_GEN_LOCATION,
+        http_options=http_options,
     )
 
-    response = client.models.generate_content(
-        model=model_name,
-        contents=contents,
-        config=types.GenerateContentConfig(
-            response_modalities=["IMAGE"],
-            image_config=types.ImageConfig(
-                aspect_ratio=aspect_ratio,
-            ),
-            #candiate_count=candidate_count,
-        ),
+    analytics_logger.info(
+        f"Generating image with model: {model_name}, aspect_ratio: {aspect_ratio}, num_images: {len(images)}, image_size: {image_size}, use_search: {use_search}"
     )
-    
+    for i, img in enumerate(images):
+        analytics_logger.info(f"  Image {i}: {img}")
+
+    image_config_args = {"aspect_ratio": aspect_ratio}
+    if image_size:
+        image_config_args["image_size"] = image_size
+
+    tools = []
+    if use_search:
+        tools.append(types.Tool(google_search=types.GoogleSearch()))
+
+    with track_model_call(
+        model_name=model_name,
+        aspect_ratio=aspect_ratio,
+        num_images=len(images),
+    ):
+        response = client.models.generate_content(
+            model=model_name,
+            contents=contents,
+            config=types.GenerateContentConfig(
+                response_modalities=["IMAGE", "TEXT"],
+                image_config=types.ImageConfig(**image_config_args),
+                tools=tools if tools else None,
+                # candidate_count=candidate_count,
+            ),
+        )
+
     end_time = time.time()
     execution_time = end_time - start_time
 
     gcs_uris = []
-    if (
-        response.candidates
-        and response.candidates[0].content
-        and response.candidates[0].content.parts
-    ):
-        print(
-            f"generate_image_from_prompt_and_images: {len(response.candidates[0].content.parts)} parts"
-        )
-        for i, part in enumerate(response.candidates[0].content.parts):
-            if hasattr(part, "text"):
-                print(f"generate_image_from_prompt_and_images (text): {part.text}")
-            if hasattr(part, "inline_data") and part.inline_data:
-                # Default to "image/png" if mime_type is missing
-                mime_type = "image/png"
-                if (
-                    hasattr(part.inline_data, "mime_type")
-                    and part.inline_data.mime_type
-                ):
-                    mime_type = part.inline_data.mime_type
-                gcs_uri = store_to_gcs(
-                    folder=gcs_folder,
-                    file_name=f"{file_prefix}_{uuid.uuid4()}_{i}.png",
-                    mime_type=mime_type,
-                    contents=part.inline_data.data,
-                )
-                gcs_uris.append(gcs_uri)
+    captions = []
+    current_text_buffer = ""
+    grounding_info = None
+
+    if response.candidates:
+        candidate = response.candidates[0]
+        if candidate.grounding_metadata:
+            try:
+                # google-genai types usually have model_dump()
+                grounding_info = candidate.grounding_metadata.model_dump()
+            except Exception as e:
+                analytics_logger.warning(f"Failed to extract grounding metadata: {e}")
+
+        if candidate.content and candidate.content.parts:
+            analytics_logger.info(
+                f"generate_image_from_prompt_and_images: {len(candidate.content.parts)} parts"
+            )
+            for i, part in enumerate(candidate.content.parts):
+                if hasattr(part, "text") and part.text:
+                    analytics_logger.info(
+                        f"generate_image_from_prompt_and_images (text): {part.text}"
+                    )
+                    current_text_buffer += part.text
+                
+                if hasattr(part, "inline_data") and part.inline_data:
+                    # Default to "image/png" if mime_type is missing
+                    mime_type = "image/png"
+                    if (
+                        hasattr(part.inline_data, "mime_type")
+                        and part.inline_data.mime_type
+                    ):
+                        mime_type = part.inline_data.mime_type
+                    gcs_uri = store_to_gcs(
+                        folder=gcs_folder,
+                        file_name=f"{file_prefix}_{uuid.uuid4()}_{i}.png",
+                        mime_type=mime_type,
+                        contents=part.inline_data.data,
+                    )
+                    gcs_uris.append(gcs_uri)
+                    captions.append(current_text_buffer.strip())
+                    current_text_buffer = "" # Reset buffer after associating with an image
     else:
-        print("generate_image_from_prompt_and_images: no images")
-    return gcs_uris, execution_time
+        analytics_logger.warning("generate_image_from_prompt_and_images: no images")
+    return gcs_uris, execution_time, captions, grounding_info
 
 
 @retry(
@@ -161,29 +208,29 @@ def generate_image_from_prompt_and_images(
 )
 def extract_room_names_from_image(image_uri: str) -> list[str]:
     """Analyzes a floor plan image and extracts the names of the rooms."""
-    model_name = cfg.MODEL_ID # Use a fast model for this analysis task
+    model_name = cfg.MODEL_ID  # Use a fast model for this analysis task
 
     config = types.GenerateContentConfig(
         response_mime_type="application/json",
         response_schema=RoomList.model_json_schema(),
-        temperature=0.1, # Low temperature for factual extraction
+        temperature=0.1,  # Low temperature for factual extraction
     )
 
     prompt_text = "Analyze this floor plan image and identify all the labeled rooms. Return a JSON list of the room names."
-    
+
     prompt_parts = [
         prompt_text,
         types.Part.from_uri(file_uri=image_uri, mime_type="image/png"),
     ]
 
-    response = client.models.generate_content(
-        model=model_name, contents=prompt_parts, config=config
-    )
-    
-    room_list_obj = RoomList.model_validate_json(response.text)
-    
-    return [room.room_name for room in room_list_obj.rooms]
+    with track_model_call(model_name=model_name, task="extract_room_names"):
+        response = client.models.generate_content(
+            model=model_name, contents=prompt_parts, config=config
+        )
 
+    room_list_obj = RoomList.model_validate_json(response.text)
+
+    return [room.room_name for room in room_list_obj.rooms]
 
 
 @retry(
@@ -206,19 +253,20 @@ def rewriter(original_prompt: str, rewriter_prompt: str) -> str:
     """
 
     full_prompt = f"{rewriter_prompt} {original_prompt}"
-    print(f"Rewriter: '{full_prompt}' with model {REWRITER_MODEL_ID}")
+    analytics_logger.info(f"Rewriter: '{full_prompt}' with model {REWRITER_MODEL_ID}")
     try:
-        response = client.models.generate_content(
-            model=REWRITER_MODEL_ID,  # Explicitly use the configured model
-            contents=full_prompt,
-            config=types.GenerateContentConfig(
-                response_modalities=["TEXT"],
-            ),
-        )
-        print(f"Rewriter success! {response.text}")
+        with track_model_call(model_name=REWRITER_MODEL_ID, task="rewriter"):
+            response = client.models.generate_content(
+                model=REWRITER_MODEL_ID,  # Explicitly use the configured model
+                contents=full_prompt,
+                config=types.GenerateContentConfig(
+                    response_modalities=["TEXT"],
+                ),
+            )
+        analytics_logger.info(f"Rewriter success! {response.text}")
         return response.text
     except Exception as e:
-        print(f"Rewriter error: {e}")
+        analytics_logger.error(f"Rewriter error: {e}")
         raise
 
 
@@ -241,7 +289,7 @@ def analyze_audio_with_gemini(
     Returns:
         A dictionary containing the structured analysis from Gemini, or None if an error occurs.
     """
-    print(
+    analytics_logger.info(
         f"Starting audio analysis for URI: {audio_uri} with prompt: '{music_generation_prompt}'"
     )
 
@@ -251,9 +299,11 @@ def analyze_audio_with_gemini(
     # Prepare the audio part using from_uri
     try:
         audio_part = types.Part.from_uri(file_uri=audio_uri, mime_type="audio/wav")
-        print(f"Audio part created from URI: {audio_uri}")
+        analytics_logger.info(f"Audio part created from URI: {audio_uri}")
     except Exception as e:
-        print(f"Failed to create audio Part from URI '{audio_uri}': {e}")
+        analytics_logger.error(
+            f"Failed to create audio Part from URI '{audio_uri}': {e}"
+        )
         raise  # Re-raise to be caught by tenacity or calling function
 
     # Prepare the text part, incorporating the dynamic music_generation_prompt
@@ -338,21 +388,22 @@ Output this as JSON.
     ]
 
     try:
-        print(f"Sending request to Gemini model: {analysis_model_id}")
+        analytics_logger.info(f"Sending request to Gemini model: {analysis_model_id}")
 
-        response = client.models.generate_content(  # Or client.generate_content if client is a model instance
-            model=analysis_model_id,
-            contents=contents_for_api,
-            config=generation_config_params,
-        )
+        with track_model_call(model_name=analysis_model_id, task="analyze_audio"):
+            response = client.models.generate_content(  # Or client.generate_content if client is a model instance
+                model=analysis_model_id,
+                contents=contents_for_api,
+                config=generation_config_params,
+            )
 
-        print("Received response from Gemini.")
-        print(f"{response}")
+        analytics_logger.info("Received response from Gemini.")
+        analytics_logger.debug(f"{response}")
 
         # Assuming the response.text contains the JSON string due to response_mime_type
         if response.text:
             parsed_json = json.loads(response.text)
-            print(f"Successfully parsed analysis JSON: {parsed_json}")
+            analytics_logger.info(f"Successfully parsed analysis JSON: {parsed_json}")
             return parsed_json
             # return response.text
         else:
@@ -365,15 +416,15 @@ Output this as JSON.
                 )
                 if json_text_from_parts:
                     parsed_json = json.loads(json_text_from_parts)
-                    print(
+                    analytics_logger.info(
                         f"Successfully parsed analysis JSON from parts: {parsed_json}"
                     )
                     return parsed_json
-            print("Warning: Gemini response text was empty.")
+            analytics_logger.warning("Gemini response text was empty.")
             return None  # Or raise an error
 
     except Exception as e:
-        print(f"Error during Gemini API call for audio analysis: {e}")
+        analytics_logger.error(f"Error during Gemini API call for audio analysis: {e}")
         # The retry decorator will handle re-raising if all attempts fail.
         # If not using retry, you'd raise e here.
         raise  # Re-raise for tenacity or the caller
@@ -440,24 +491,25 @@ def image_critique(original_prompt: str, img_uris: list[str]) -> str:
             critique_model_id = (
                 cfg.MODEL_ID
             )  # Or a specific cfg.GEMINI_CRITIQUE_MODEL_ID
-            print(
+            analytics_logger.info(
                 f"Sending critique request to Gemini model: {critique_model_id} with {len(contents_payload)} parts."
             )
 
-            response = client.models.generate_content(
-                model=critique_model_id,
-                contents=contents_payload,
-                config=types.GenerateContentConfig(
-                    response_modalities=["TEXT"],
-                    safety_settings=safety_settings_list,
-                    max_output_tokens=8192,
-                ),
-            )
+            with track_model_call(model_name=critique_model_id, task="image_critique"):
+                response = client.models.generate_content(
+                    model=critique_model_id,
+                    contents=contents_payload,
+                    config=types.GenerateContentConfig(
+                        response_modalities=["TEXT"],
+                        safety_settings=safety_settings_list,
+                        max_output_tokens=8192,
+                    ),
+                )
 
-            print("Received critique response from Gemini.")
+            analytics_logger.info("Received critique response from Gemini.")
 
             if response.text:
-                print(
+                analytics_logger.info(
                     f"Critique generated (truncated): {response.text[:200]}..."
                 )  # Log a snippet
                 return response.text  # Return the text directly
@@ -468,16 +520,20 @@ def image_critique(original_prompt: str, img_uris: list[str]) -> str:
                 and response.candidates[0].content.parts[0].text
             ):
                 text_response = response.candidates[0].content.parts[0].text
-                print(f"Critique generated (truncated): {text_response[:200]}...")
+                analytics_logger.info(
+                    f"Critique generated (truncated): {text_response[:200]}..."
+                )
                 return text_response
             else:
-                print(
-                    "Warning: Gemini critique response text was empty or response structure unexpected."
+                analytics_logger.warning(
+                    "Gemini critique response text was empty or response structure unexpected."
                 )
                 return "Critique could not be generated (empty or unexpected response)."
 
         except Exception as e:
-            print(f"Error during Gemini API call for image critique: {e}")
+            analytics_logger.error(
+                f"Error during Gemini API call for image critique: {e}"
+            )
             raise
 
 
@@ -494,7 +550,7 @@ def rewrite_prompt_with_gemini(original_prompt: str) -> str:
     try:
         rewritten_text = rewriter(original_prompt, REWRITER_PROMPT)
         if not rewritten_text:
-            print("Warning: Rewriter returned an empty prompt.")
+            analytics_logger.warning("Rewriter returned an empty prompt.")
             return original_prompt
         return rewritten_text
     except Exception as e:
@@ -511,24 +567,24 @@ def generate_compliment(generation_instruction: str, image_output):
     critique_text = ""
     error_for_this_op = ""
 
-    print(
+    analytics_logger.info(
         f"Generating critique for instruction: '{generation_instruction}' and {len(image_output)} images."
     )
     try:
         # Assuming image_critique is a blocking call to your Gemini model for critique
         critique_text = image_critique(generation_instruction, image_output)
         if not critique_text:
-            print("Warning: Image critique returned empty.")
+            analytics_logger.warning("Image critique returned empty.")
             # critique_text = "No critique available for these images." # Optional default
 
     except requests.exceptions.HTTPError as err_http:
-        print(f"HTTPError during image critique: {err_http}")
+        analytics_logger.error(f"HTTPError during image critique: {err_http}")
         error_for_this_op = f"Network error during critique: {err_http.response.status_code if err_http.response else 'Unknown'}"
     except ValueError as err_value:
-        print(f"ValueError during image critique: {err_value}")
+        analytics_logger.error(f"ValueError during image critique: {err_value}")
         error_for_this_op = f"Input error for critique: {str(err_value)}"
     except Exception as err_generic:
-        print(
+        analytics_logger.error(
             f"Generic Exception during image critique: {type(err_generic).__name__}: {err_generic}"
         )
         error_for_this_op = f"Unexpected error during critique: {str(err_generic)}"
@@ -536,12 +592,12 @@ def generate_compliment(generation_instruction: str, image_output):
         end_time = time.time()
         execution_time = end_time - start_time
         timing = f"Critique generation time: {execution_time:.2f} seconds"  # More precise timing
-        print(timing)
+        analytics_logger.info(timing)
 
         if error_for_this_op:  # If an error occurred specifically in this operation
             raise GenerationError(error_for_this_op)
 
-    print("Critique generation function finished.")
+    analytics_logger.info("Critique generation function finished.")
     return critique_text
 
 
@@ -564,9 +620,10 @@ def get_facial_composite_profile(image_bytes: bytes) -> FacialCompositeProfile:
         "You are a forensic analyst. Analyze the following image and extract a detailed, structured facial profile.",
         types.Part.from_bytes(data=image_bytes, mime_type="image/png"),
     ]
-    response = client.models.generate_content(
-        model=model_name, contents=profile_prompt_parts, config=profile_config
-    )
+    with track_model_call(model_name=model_name, task="get_facial_composite_profile"):
+        response = client.models.generate_content(
+            model=model_name, contents=profile_prompt_parts, config=profile_config
+        )
     return FacialCompositeProfile.model_validate_json(response.text)
 
 
@@ -589,9 +646,12 @@ def get_natural_language_description(profile: FacialCompositeProfile) -> str:
     JSON Profile:
     {profile.model_dump_json(indent=2)}
     """
-    response = client.models.generate_content(
-        model=model_name, contents=[description_prompt], config=description_config
-    )
+    with track_model_call(
+        model_name=model_name, task="get_natural_language_description"
+    ):
+        response = client.models.generate_content(
+            model=model_name, contents=[description_prompt], config=description_config
+        )
     return response.text.strip()
 
 
@@ -631,10 +691,10 @@ def generate_final_scene_prompt(
     3.  Ensure the final prompt clearly describes the person performing the action or being in the scene requested by the user.
     4.  Generate a standard negative prompt to avoid common artistic flaws.
     """
-
-    response = client.models.generate_content(
-        model=model_name, contents=[meta_prompt], config=config
-    )
+    with track_model_call(model_name=model_name, task="generate_final_scene_prompt"):
+        response = client.models.generate_content(
+            model=model_name, contents=[meta_prompt], config=config
+        )
     return GeneratedPrompts.model_validate_json(response.text)
 
 
@@ -680,9 +740,10 @@ def select_best_image(
             types.Part.from_bytes(data=image_bytes, mime_type="image/png")
         )
 
-    response = client.models.generate_content(
-        model=model, contents=prompt_parts, config=config
-    )
+    with track_model_call(model_name=model, task="select_best_image"):
+        response = client.models.generate_content(
+            model=model, contents=prompt_parts, config=config
+        )
     return BestImage.model_validate_json(response.text)
 
 
@@ -728,9 +789,10 @@ def select_best_image_with_description(
             types.Part.from_bytes(data=image_bytes, mime_type="image/png")
         )
 
-    response = client.models.generate_content(
-        model=model, contents=prompt_parts, config=config
-    )
+    with track_model_call(model_name=model, task="select_best_image_with_description"):
+        response = client.models.generate_content(
+            model=model, contents=prompt_parts, config=config
+        )
     return BestImageAccuracy.model_validate_json(response.text)
 
 
@@ -770,9 +832,10 @@ def final_image_critic(
             types.Part.from_bytes(data=image_bytes, mime_type="image/png")
         )
 
-    response = client.models.generate_content(
-        model=model, contents=prompt_parts, config=config
-    )
+    with track_model_call(model_name=model, task="final_image_critic"):
+        response = client.models.generate_content(
+            model=model, contents=prompt_parts, config=config
+        )
     return GeneratedImageAccuracyWrapper.model_validate_json(response.text)
 
 
@@ -805,9 +868,10 @@ def describe_images_and_look(
             types.Part.from_uri(file_uri=a.clothing_image, mime_type="image/png")
         )
 
-    response = client.models.generate_content(
-        model=model, contents=prompt_parts, config=config
-    )
+    with track_model_call(model_name=model, task="describe_images_and_look"):
+        response = client.models.generate_content(
+            model=model, contents=prompt_parts, config=config
+        )
 
     return ArticleDescriptionWrapper.model_validate_json(response.text)
 
@@ -846,9 +910,12 @@ def generate_transformation_prompts(image_uris: list[str]) -> list[Transformatio
     for uri in image_uris:
         prompt_parts.append(types.Part.from_uri(file_uri=uri, mime_type="image/png"))
 
-    response = client.models.generate_content(
-        model=model_name, contents=prompt_parts, config=config
-    )
+    with track_model_call(
+        model_name=model_name, task="generate_transformation_prompts"
+    ):
+        response = client.models.generate_content(
+            model=model_name, contents=prompt_parts, config=config
+        )
 
     prompts = TransformationPrompts.model_validate_json(response.text)
     return prompts.transformations
@@ -868,9 +935,10 @@ def describe_image(image_uri: str) -> str:
         "Describe this image in two sentences.",
         types.Part.from_uri(file_uri=image_uri, mime_type="image/png"),
     ]
-    response = client.models.generate_content(
-        model=model_name, contents=prompt_parts, config=config
-    )
+    with track_model_call(model_name=model_name, task="describe_image"):
+        response = client.models.generate_content(
+            model=model_name, contents=prompt_parts, config=config
+        )
     return response.text.strip()
 
 
@@ -888,9 +956,10 @@ def describe_video(video_uri: str) -> str:
         "Describe this video in two sentences, focusing on the main subject, action, and overall visual style.",
         types.Part.from_uri(file_uri=video_uri, mime_type="video/mp4"),
     ]
-    response = client.models.generate_content(
-        model=model_name, contents=prompt_parts, config=config
-    )
+    with track_model_call(model_name=model_name, task="describe_video"):
+        response = client.models.generate_content(
+            model=model_name, contents=prompt_parts, config=config
+        )
     return response.text.strip()
 
 
@@ -909,7 +978,9 @@ class EvaluationResult(BaseModel):
     retry=retry_if_exception_type(Exception),
     reraise=True,
 )
-def evaluate_media_with_questions(media_uri: str, mime_type: str, questions: list[str]) -> EvaluationResult:
+def evaluate_media_with_questions(
+    media_uri: str, mime_type: str, questions: list[str]
+) -> EvaluationResult:
     """Evaluates a media file against a list of yes/no questions."""
     model_name = cfg.MODEL_ID
     config = types.GenerateContentConfig(
@@ -927,9 +998,10 @@ def evaluate_media_with_questions(media_uri: str, mime_type: str, questions: lis
         types.Part.from_uri(file_uri=media_uri, mime_type=mime_type),
     ]
 
-    response = client.models.generate_content(
-        model=model_name, contents=prompt_parts, config=config
-    )
+    with track_model_call(model_name=model_name, task="evaluate_media_with_questions"):
+        response = client.models.generate_content(
+            model=model_name, contents=prompt_parts, config=config
+        )
 
     return EvaluationResult.model_validate_json(response.text)
 
@@ -940,7 +1012,9 @@ def evaluate_media_with_questions(media_uri: str, mime_type: str, questions: lis
     retry=retry_if_exception_type(Exception),
     reraise=True,
 )
-def evaluate_image_with_questions(image_uri: str, questions: list[str]) -> EvaluationResult:
+def evaluate_image_with_questions(
+    image_uri: str, questions: list[str]
+) -> EvaluationResult:
     """Evaluates an image against a list of yes/no questions."""
     model_name = cfg.MODEL_ID
     config = types.GenerateContentConfig(
@@ -958,15 +1032,17 @@ def evaluate_image_with_questions(image_uri: str, questions: list[str]) -> Evalu
         types.Part.from_uri(file_uri=image_uri, mime_type="image/png"),
     ]
 
-    response = client.models.generate_content(
-        model=model_name, contents=prompt_parts, config=config
-    )
+    with track_model_call(model_name=model_name, task="evaluate_image_with_questions"):
+        response = client.models.generate_content(
+            model=model_name, contents=prompt_parts, config=config
+        )
 
     return EvaluationResult.model_validate_json(response.text)
 
 
 class CritiqueQuestion(BaseModel):
     question: str = Field(..., description="A yes/no question to evaluate an image.")
+
 
 class CritiqueQuestionList(BaseModel):
     questions: list[CritiqueQuestion] = Field(..., max_length=5, min_length=5)
@@ -978,8 +1054,10 @@ class CritiqueQuestionList(BaseModel):
     retry=retry_if_exception_type(Exception),
     reraise=True,
 )
-def generate_critique_questions(prompt: str, image_descriptions: list[str]) -> list[str]:
-    """Generates 5 yes/no questions based on a prompt and image descriptions."""
+def generate_critique_questions(
+    prompt: str, image_descriptions: list[str]
+) -> list[str]:
+    """Generates 5 yes/no questions based on a prompt and optional image descriptions."""
     model_name = cfg.MODEL_ID
     config = types.GenerateContentConfig(
         response_mime_type="application/json",
@@ -987,15 +1065,20 @@ def generate_critique_questions(prompt: str, image_descriptions: list[str]) -> l
         temperature=0.5,
     )
 
-    meta_prompt = "Using the following prompt and the description of each image, come up with 5 yes/no questions that we could ask of the resulting image that would identify whether the generated images meets the intent of the user based upon the following:\n\n"
-    meta_prompt += f"Prompt: {prompt}\n\n"
+    if image_descriptions:
+        meta_prompt = "Using the following prompt and the description of each image, come up with 5 yes/no questions that we could ask of the resulting image that would identify whether the generated images meets the intent of the user based upon the following:\n\n"
+        meta_prompt += f"Prompt: {prompt}\n\n"
 
-    for i, desc in enumerate(image_descriptions):
-        meta_prompt += f"Image {i+1} description: {desc}\n"
-    
-    response = client.models.generate_content(
-        model=model_name, contents=[meta_prompt], config=config
-    )
+        for i, desc in enumerate(image_descriptions):
+            meta_prompt += f"Image {i + 1} description: {desc}\n"
+    else:
+        meta_prompt = "Using the following prompt, come up with 5 yes/no questions that we could ask of a generated image to identify whether it meets the intent of the user:\n\n"
+        meta_prompt += f"Prompt: {prompt}\n\n"
+
+    with track_model_call(model_name=model_name, task="generate_critique_questions"):
+        response = client.models.generate_content(
+            model=model_name, contents=[meta_prompt], config=config
+        )
 
     question_list = CritiqueQuestionList.model_validate_json(response.text)
     return [q.question for q in question_list.questions]
@@ -1007,30 +1090,39 @@ def generate_critique_questions(prompt: str, image_descriptions: list[str]) -> l
     retry=retry_if_exception_type(Exception),
     reraise=True,
 )
-def generate_text(prompt: str, images: list[str]) -> tuple[str, float]:
+def generate_text(
+    prompt: str, images: list[str], model_name: Optional[str] = None
+) -> tuple[str, float]:
     """Generates text from a prompt and a list of media files."""
-    print(f"Entering generate_text with prompt: {prompt} and {len(images)} images.")
-    start_time = time.time()
-    model_name = cfg.MODEL_ID
+    # print(f"Entering generate_text with prompt: {prompt} and {len(images)} images.")
+    # start_time = time.time()
+    if not model_name:
+        model_name = cfg.MODEL_ID
 
     parts = [types.Part.from_text(text=prompt)]
     for image_uri in images:
         # More robust mime type detection
-        if any(image_uri.lower().endswith(ext) for ext in [".mp4", ".mov", ".avi", ".mkv", ".webm"]):
-            mime_type = "video/mp4" # General video type
+        if any(
+            image_uri.lower().endswith(ext)
+            for ext in [".mp4", ".mov", ".avi", ".mkv", ".webm"]
+        ):
+            mime_type = "video/mp4"  # General video type
         elif any(image_uri.lower().endswith(ext) for ext in [".wav", ".mp3", ".flac"]):
-            mime_type = "audio/wav" # General audio type
-        elif any(image_uri.lower().endswith(ext) for ext in [".png", ".jpg", ".jpeg", ".webp", ".gif"]):
-            mime_type = "image/png" # General image type
+            mime_type = "audio/wav"  # General audio type
+        elif any(
+            image_uri.lower().endswith(ext)
+            for ext in [".png", ".jpg", ".jpeg", ".webp", ".gif"]
+        ):
+            mime_type = "image/png"  # General image type
         elif image_uri.lower().endswith(".pdf"):
             mime_type = "application/pdf"
         else:
             # Fallback for unknown types, though this may still cause errors
             mime_type = "application/octet-stream"
-        
+
         parts.append(types.Part.from_uri(file_uri=image_uri, mime_type=mime_type))
-    
-    print(f"Constructed parts for Gemini API: {parts}")
+
+    # print(f"Constructed parts for Gemini API: {parts}")
 
     contents = [types.Content(role="user", parts=parts)]
 
@@ -1038,15 +1130,71 @@ def generate_text(prompt: str, images: list[str]) -> tuple[str, float]:
         location=cfg.LOCATION,
     )
 
-    print(f"Sending request to model: {model_name}")
-    response = client.models.generate_content(
-        model=model_name,
-        contents=contents,
-    )
-    print(f"Received raw response from model: {response}")
-    
-    end_time = time.time()
-    execution_time = end_time - start_time
+    # print(f"Sending request to model: {model_name}")
+    with track_model_call(model_name=model_name, task="generate_text"):
+        response = client.models.generate_content(
+            model=model_name,
+            contents=contents,
+        )
+    # print(f"Received raw response from model: {response}")
 
-    print(f"Returning text: {response.text}, execution_time: {execution_time}")
+    # end_time = time.time()
+    # execution_time = end_time - start_time
+    execution_time = 0  # Placeholder, timing is handled by track_model_call logger
+
+    # print(f"Returning text: {response.text}, execution_time: {execution_time}")
     return response.text, execution_time
+
+
+class TTSEvaluation(BaseModel):
+    quality_score: int = Field(
+        ..., ge=1, le=100, description="Integer score between 1 and 100."
+    )
+    justification: str = Field(
+        ..., description="A single sentence summarizing the main reason for the score."
+    )
+    key_tags: list[str] = Field(
+        ..., description="List of tags describing style, tone, pace, content, voice."
+    )
+
+
+@retry(
+    wait=wait_exponential(multiplier=1, min=1, max=10),
+    stop=stop_after_attempt(3),
+    retry=retry_if_exception_type(Exception),
+    reraise=True,
+)
+def evaluate_tts_audio(
+    audio_uri: str, original_text: str, generation_prompt: str
+) -> TTSEvaluation:
+    """Evaluate TTS audio using a specific prompt template."""
+    model_name = cfg.MODEL_ID
+
+    base_prompt = GEMINI_TTS_EVALUATOR
+
+    # Replace placeholders
+    final_prompt = base_prompt.replace(
+        "[PASTE THE FULL TEXT THAT WAS CONVERTED TO SPEECH HERE]", original_text
+    )
+    final_prompt = final_prompt.replace(
+        '[PASTE THE SPECIFIC PROMPT USED TO GENERATE THE AUDIO (e.g., "Narrate this in a friendly, slightly amused tone with a fast pace and a British accent.")]',
+        generation_prompt,
+    )
+
+    config = types.GenerateContentConfig(
+        response_mime_type="application/json",
+        response_schema=TTSEvaluation.model_json_schema(),
+        temperature=0.2,  # Low temperature for consistent evaluation
+    )
+
+    prompt_parts = [
+        final_prompt,
+        types.Part.from_uri(file_uri=audio_uri, mime_type="audio/wav"),
+    ]
+
+    with track_model_call(model_name=model_name, task="evaluate_tts_audio"):
+        response = client.models.generate_content(
+            model=model_name, contents=prompt_parts, config=config
+        )
+
+    return TTSEvaluation.model_validate_json(response.text)

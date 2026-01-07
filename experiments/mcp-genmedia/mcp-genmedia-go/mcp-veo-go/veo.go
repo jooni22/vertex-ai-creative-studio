@@ -43,7 +43,7 @@ var (
 
 const (
 	serviceName = "mcp-veo-go"
-	version     = "1.12.0" // Standardize port handling
+	version     = "1.13.0" // generate audio and Veo 3.1
 )
 
 // init handles command-line flags and initial logging setup.
@@ -65,7 +65,6 @@ func main() {
 	appConfig = common.LoadConfig()
 
 	// Initialize OpenTelemetry
-	if otel_enabled {
 	tp, err := common.InitTracerProvider(serviceName, version)
 	if err != nil {
 		log.Fatalf("failed to initialize tracer provider: %v", err)
@@ -77,7 +76,7 @@ func main() {
 			}
 		}()
 	}
-	}
+	
 
 	log.Printf("Initializing global GenAI client...")
 	clientCtx, clientCancel := context.WithTimeout(context.Background(), 1*time.Minute)
@@ -127,6 +126,10 @@ func main() {
 		mcp.WithNumber("duration",
 			mcp.DefaultNumber(5),
 			mcp.Description("Duration of the generated video in seconds. Note: the supported duration range is model-dependent."),
+		),
+		mcp.WithBoolean("generate_audio",
+			mcp.DefaultBool(true),
+			mcp.Description("Optional. Generate audio for the video. Only supported by Veo 3 models. Defaults to true."),
 		),
 	}
 
@@ -193,7 +196,7 @@ func main() {
 			args[k] = v
 		}
 		toolRequest := mcp.CallToolRequest{
-			Params:   mcp.CallToolParams{Arguments: args},
+			Params: mcp.CallToolParams{Arguments: args},
 		}
 		result, err := veoTextToVideoHandler(genAIClient, ctx, toolRequest)
 		if err != nil {

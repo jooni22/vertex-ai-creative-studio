@@ -41,6 +41,7 @@ class MediaItem:
     """Represents a single media item in the library for Firestore storage and retrieval."""
 
     id: Optional[str] = None  # Firestore document ID
+    status: str = "created"  # Options: "created", "pending", "processing", "complete", "failed"
     related_media_item_id: Optional[str] = None  # For linking generation sequences
     user_email: Optional[str] = None
     timestamp: Optional[datetime.datetime] = None  # Store as datetime object
@@ -91,12 +92,16 @@ class MediaItem:
     modifiers: List[str] = field(
         default_factory=list
     )  # e.g., ["photorealistic", "wide angle"]
+    captions: List[str] = field(
+        default_factory=list
+    )  # Captions or narrative text associated with generated images
     negative_prompt: Optional[str] = None
     num_images: Optional[int] = None  # Number of images generated in a batch
     seed: Optional[int] = (
         None  # Seed used for generation (also potentially for video/audio)
     )
     critique: Optional[str] = None  # Gemini-generated critique for images
+    grounding_info: Optional[str] = None  # Grounding metadata from search, stored as JSON string
 
     # Music specific
     # duration is shared with Video
@@ -136,11 +141,22 @@ class MediaItem:
     r2v_reference_images: List[str] = field(default_factory=list)
     r2v_style_image: Optional[str] = None
 
+    # VTO specific
+    person_image_gcs: Optional[str] = None
+    product_image_gcs: Optional[str] = None
+
+    # Upscale specific
+    original_resolution: Optional[str] = None
+    upscale_factor: Optional[str] = None
+    image_size: Optional[str] = None
+
     def __post_init__(self):
         # Ensure audio_analysis is always a JSON string for state serialization.
         # This handles cases where raw data from Firestore might be a dict.
         if isinstance(self.audio_analysis, dict):
             self.audio_analysis = json.dumps(self.audio_analysis)
+        if isinstance(self.grounding_info, dict):
+            self.grounding_info = json.dumps(self.grounding_info)
 
 
 def add_media_item_to_firestore(item: MediaItem):
@@ -293,6 +309,7 @@ def _create_media_item_from_dict(doc_id: str, raw_item_data: dict) -> MediaItem:
         mime_type=raw_item_data.get("mime_type"),
         mode=raw_item_data.get("mode"),
         generation_time=gen_time,
+        status=raw_item_data.get("status", "complete"),  # Default to 'complete' for legacy items
         error_message=raw_item_data.get("error_message"),
         gcsuri=gcsuri,
         gcs_uris=raw_item_data.get("gcs_uris", []),
@@ -308,9 +325,11 @@ def _create_media_item_from_dict(doc_id: str, raw_item_data: dict) -> MediaItem:
         enhanced_prompt_used=raw_item_data.get("enhanced_prompt_used"),
         comment=raw_item_data.get("comment"),
         modifiers=raw_item_data.get("modifiers", []),
+        captions=raw_item_data.get("captions", []),
         num_images=num_images,
         seed=seed,
         critique=raw_item_data.get("critique"),
+        grounding_info=raw_item_data.get("grounding_info"),
         audio_analysis=raw_item_data.get("audio_analysis"),
         media_type=raw_item_data.get("media_type"),
         source_character_images=raw_item_data.get("source_character_images", []),
@@ -331,6 +350,11 @@ def _create_media_item_from_dict(doc_id: str, raw_item_data: dict) -> MediaItem:
         related_media_item_id=raw_item_data.get("related_media_item_id"),
         r2v_reference_images=raw_item_data.get("r2v_reference_images", []),
         r2v_style_image=raw_item_data.get("r2v_style_image"),
+        person_image_gcs=raw_item_data.get("person_image_gcs"),
+        product_image_gcs=raw_item_data.get("product_image_gcs"),
+        original_resolution=raw_item_data.get("original_resolution"),
+        upscale_factor=raw_item_data.get("upscale_factor"),
+        image_size=raw_item_data.get("image_size"),
         raw_data=raw_item_data,
     )
     return media_item
@@ -532,6 +556,7 @@ def get_media_for_page_optimized(
     page_size: int,
     type_filters: list[str],
     start_after=None,
+    filter_by_user_email: Optional[str] = None,
 ):
     """
     Fetches a paginated and filtered list of media items from Firestore
@@ -539,6 +564,10 @@ def get_media_for_page_optimized(
     """
     try:
         query = db.collection(config.GENMEDIA_COLLECTION_NAME)
+
+        # Apply user email filter if provided
+        if filter_by_user_email:
+            query = query.where("user_email", "==", filter_by_user_email)
 
         # Apply type filters using WHERE clauses
         # Note: This requires Firestore indexes. For a single 'mime_type' startsWith,
@@ -552,7 +581,7 @@ def get_media_for_page_optimized(
             query = query.where("mime_type", ">=", "image/").where(
                 "mime_type", "<", "image0"
             )
-        elif "music" in type_filters:
+        elif "music" in type_filters or "audio" in type_filters:
             query = query.where("mime_type", ">=", "audio/").where(
                 "mime_type", "<", "audio0"
             )
@@ -701,6 +730,8 @@ def get_media_for_page_optimized(
                     if raw_item_data.get("outpainted_image") is not None
                     else None
                 ),
+                original_resolution=raw_item_data.get("original_resolution"),
+                upscale_factor=raw_item_data.get("upscale_factor"),
                 raw_data=raw_item_data,
             )
             media_items.append(media_item)

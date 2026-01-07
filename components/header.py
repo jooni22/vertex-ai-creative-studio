@@ -16,6 +16,8 @@ import typing
 import mesop as me
 
 from components.svg_icon.svg_icon import svg_icon
+from components.pill import pill
+
 
 @me.component
 def header(
@@ -25,17 +27,17 @@ def header(
     on_info_click: typing.Callable[..., None] | None = None,
     current_status: str = None,
 ):
-    """Header component."""
-    
+    """Render header component."""
     # List of custom icons that should use the svg_icon component
     custom_icons = ["spark", "style", "scene", "banana"]
-    def render_icon(icon_name: str):
+
+    def render_icon(icon_name: str) -> None:
         if icon_name in custom_icons:
             with me.box(style=me.Style(width=24, height=24)):
                 svg_icon(icon_name=icon_name)
         else:
             me.icon(icon=icon_name)
-    
+
     with me.box(
         style=me.Style(
             display="flex",
@@ -51,20 +53,22 @@ def header(
                 align_items="baseline",
             ),
         ):
-            #me.icon(icon=icon)
             render_icon(icon)
             me.text(
                 title,
                 type="headline-5",
                 style=me.Style(font_family="Google Sans"),
             )
+            if current_status:
+                pill(current_status, "stage")
 
         if show_info_button and on_info_click:
-            with me.content_button(
-                type="icon",
-                on_click=on_info_click,
-                style=me.Style(margin=me.Margin(left="auto")),
-            ), me.tooltip(message="About this page"):
+            with (
+                me.content_button(
+                    type="icon",
+                    on_click=on_info_click,
+                    style=me.Style(margin=me.Margin(left="auto")),
+                ),
+                me.tooltip(message="About this page"),
+            ):
                 me.icon(icon="info_outline")
-
-        

@@ -44,10 +44,10 @@ def veo_modes(
         return
 
     # Dynamically create the buttons based on the supported modes for the selected model.
-    veo_mode_buttons = [
-        me.ButtonToggleButton(label=mode, value=mode)
-        for mode in selected_config.supported_modes
-    ]
+    veo_mode_buttons = []
+    for mode in selected_config.supported_modes:
+        label = "first/last" if mode == "interpolation" else mode
+        veo_mode_buttons.append(me.ButtonToggleButton(label=label, value=mode))
 
     me.button_toggle(
         value=state.veo_mode,
@@ -196,7 +196,7 @@ def _uploader_placeholder(on_upload, on_library_select, key_prefix: str, disable
         me.uploader(
             label="Upload Image",
             on_upload=on_upload,
-            accepted_file_types=["image/jpeg", "image/png"],
+            accepted_file_types=["image/jpeg", "image/png", "image/webp"],
             key=f"{key_prefix}_uploader",
             disabled=disabled,
         )
@@ -257,7 +257,7 @@ def _image_uploader(
                     disabled=False,
                 )
 
-        # Last Frame (for interpolation)
+        # Last Frame (for interpolation, also known as first/last frame)
         if last_image:
             with me.box(style=me.Style(display="flex", flex_direction="column", gap=2)):
                 me.text("Last Frame", style=me.Style(font_size="10pt"))
@@ -303,6 +303,11 @@ def on_selection_change_veo_mode(e: me.ButtonToggleChangeEvent):
         override = model_config.mode_overrides[e.value]
         if override.default_duration:
             state.video_length = override.default_duration
+        if (
+            override.supported_aspect_ratios
+            and state.aspect_ratio not in override.supported_aspect_ratios
+        ):
+            state.aspect_ratio = override.supported_aspect_ratios[0]
     yield
 
 def on_click_clear_reference_image(e: me.ClickEvent):

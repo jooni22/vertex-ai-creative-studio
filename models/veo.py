@@ -84,10 +84,27 @@ def generate_video(request: VideoGenerationRequest) -> tuple[str, str]:
 
     # Prepare Image and Video Inputs
     image_input = None
+    video_input = None
+    reference_images_list = []
+
+    # Check for Video Extension
+    if request.video_input_gcs:
+        if not model_config.supports_video_extension:
+             raise GenerationError(
+                f"Video extension is not supported by model: {request.model_version_id}"
+            )
+        logger.info("Mode: Video Extension")
+        logger.info(f" video_input: {request.video_input_gcs}")
+        video_input = types.Video(
+            uri=request.video_input_gcs,
+            mime_type=request.video_input_mime_type or "video/mp4",
+        )
+
+    # R2V can have both style and asset references.
     if request.r2v_style_image:
         logger.info("Mode: Reference-to-Video (r2v) - Style")
-        logger.info(f" reference: {request.r2v_style_image.gcs_uri}")
-        gen_config_args["reference_images"] = [
+        logger.info(f" style_reference: {request.r2v_style_image.gcs_uri}")
+        reference_images_list.append(
             types.VideoGenerationReferenceImage(
                 image=types.Image(
                     gcs_uri=request.r2v_style_image.gcs_uri,
@@ -95,19 +112,27 @@ def generate_video(request: VideoGenerationRequest) -> tuple[str, str]:
                 ),
                 reference_type="style",
             )
-        ]
-    elif request.r2v_references:
+        )
+
+    if request.r2v_references:
         logger.info("Mode: Reference-to-Video (r2v) - Asset")
-        gen_config_args["reference_images"] = [
-            types.VideoGenerationReferenceImage(
-                image=types.Image(gcs_uri=ref.gcs_uri, mime_type=ref.mime_type),
-                reference_type="asset",
+        asset_uris = [ref.gcs_uri for ref in request.r2v_references]
+        logger.info(f" asset_references: {asset_uris}")
+        for ref in request.r2v_references:
+            reference_images_list.append(
+                types.VideoGenerationReferenceImage(
+                    image=types.Image(gcs_uri=ref.gcs_uri, mime_type=ref.mime_type),
+                    reference_type="asset",
+                )
             )
-            for ref in request.r2v_references
-        ]
+
+    if reference_images_list:
+        gen_config_args["reference_images"] = reference_images_list
     # Check for interpolation (first and last frame)
     elif request.reference_image_gcs and request.last_reference_image_gcs:
         logger.info("Mode: Interpolation")
+        logger.info(f" first_frame: {request.reference_image_gcs}")
+        logger.info(f" last_frame: {request.last_reference_image_gcs}")
         image_input = types.Image(
             gcs_uri=request.reference_image_gcs,
             mime_type=request.reference_image_mime_type,
@@ -116,18 +141,26 @@ def generate_video(request: VideoGenerationRequest) -> tuple[str, str]:
             gcs_uri=request.last_reference_image_gcs,
             mime_type=request.last_reference_image_mime_type,
         )
-
     # Check for standard image-to-video
     elif request.reference_image_gcs:
         logger.info("Mode: Image-to-Video")
+        logger.info(f" image: {request.reference_image_gcs}")
         image_input = types.Image(
             gcs_uri=request.reference_image_gcs,
             mime_type=request.reference_image_mime_type,
         )
-    else:
+    elif not video_input:
         logger.info("Mode: Text-to-Video")
 
     gen_config = types.GenerateVideosConfig(**gen_config_args)
+
+    # Log the full request payload for debugging
+    logger.info(f"Calling generate_videos with model: {model_config.model_name}")
+    logger.info(f"Config: {gen_config_args}")
+    if image_input:
+        logger.info(f"Image Input: gcs_uri={image_input.gcs_uri}, mime_type={image_input.mime_type}")
+    if reference_images_list:
+        logger.info(f"Reference Images Count: {len(reference_images_list)}")
 
     # Call the API
     try:
@@ -136,6 +169,7 @@ def generate_video(request: VideoGenerationRequest) -> tuple[str, str]:
             prompt=request.prompt,
             config=gen_config,
             image=image_input,
+            video=video_input,
         )
 
         logger.info("Polling video generation operation...")
